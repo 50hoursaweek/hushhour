@@ -14,7 +14,7 @@ use iced::advanced::text::{LineHeight, Wrapping};
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 use iced::keyboard::{self, Key, Modifiers};
 use iced::keyboard::key::Named;
-use iced::widget::{button, column, container, mouse_area, row, space, text};
+use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
 use iced::window;
 
 use editor::widget::{self as text_editor, TextEditor};
@@ -29,6 +29,7 @@ use stats::Stats;
 const APP_NAME: &str = "Inkpad";
 const MIN_SIZE: f32 = 12.0;
 const DRAG_STRIP: f32 = 28.0;
+const EDGE: f32 = 6.0;
 const MAX_SIZE: f32 = 40.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -87,6 +88,7 @@ struct Inkpad {
     font: FontKind,
     size: f32,
     fullscreen: bool,
+    top_strip_hovered: bool,
     highlight: HlSettings,
     stats: Stats,
     notice: Option<String>,
@@ -113,7 +115,10 @@ enum Message {
     SelfTest,
     CursorToEnd,
     DragWindow,
+    ResizeWindow(window::Direction),
+    TopStripHovered(bool),
     ToggleMaximize,
+    Minimize,
     ToggleFullscreen,
     ToggleDecorations,
     Quit,
@@ -133,6 +138,7 @@ impl Inkpad {
             font: FontKind::Duo,
             size: 18.0,
             fullscreen: false,
+            top_strip_hovered: false,
             highlight: HlSettings::default(),
             stats: Stats::default(),
             notice: None,
@@ -246,7 +252,15 @@ impl Inkpad {
                 Task::none()
             }
             Message::DragWindow => window::latest().and_then(window::drag),
+            Message::ResizeWindow(direction) => {
+                window::latest().and_then(move |id| window::drag_resize(id, direction))
+            }
+            Message::TopStripHovered(hovered) => {
+                self.top_strip_hovered = hovered;
+                Task::none()
+            }
             Message::ToggleMaximize => window::latest().and_then(window::toggle_maximize),
+            Message::Minimize => window::latest().and_then(|id| window::minimize(id, true)),
             Message::ToggleDecorations => window::latest().and_then(window::toggle_decorations),
             Message::ToggleFullscreen => {
                 self.fullscreen = !self.fullscreen;
@@ -442,10 +456,43 @@ impl Inkpad {
 
         // Without window decorations this strip is the handle for moving the
         // window; double-click maximises, like a title bar would.
-        let drag_strip = mouse_area(space().width(Length::Fill).height(DRAG_STRIP))
+        let window_button = |label: &'static str, msg: Message| {
+            button(text(label).size(14.0).center().width(Length::Fill).height(Length::Fill))
+                .width(DRAG_STRIP + 8.0)
+                .height(DRAG_STRIP)
+                .padding(0)
+                .on_press(msg)
+                .style(|theme: &Theme, status| {
+                    let p = theme.palette();
+                    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    button::Style {
+                        background: hovered.then(|| iced::Background::Color(mix(p.text, p.background, 0.85))),
+                        text_color: mix(p.text, p.background, if hovered { 0.0 } else { 0.45 }),
+                        border: Border::default().rounded(4.0),
+                        ..button::Style::default()
+                    }
+                })
+        };
+        // Window controls appear only while the pointer is in the top strip.
+        let controls: Element<'_, Message> = if self.top_strip_hovered {
+            row![
+                window_button("–", Message::Minimize),
+                window_button("□", Message::ToggleMaximize),
+                window_button("×", Message::Quit),
+            ]
+            .spacing(2)
+            .padding(Padding::new(0.0).right(8.0))
+            .into()
+        } else {
+            space().width(0).into()
+        };
+        let drag_handle = mouse_area(space().width(Length::Fill).height(DRAG_STRIP))
             .on_press(Message::DragWindow)
             .on_double_click(Message::ToggleMaximize)
             .interaction(iced::mouse::Interaction::Grab);
+        let drag_strip = mouse_area(row![drag_handle, controls].height(DRAG_STRIP))
+            .on_enter(Message::TopStripHovered(true))
+            .on_exit(Message::TopStripHovered(false));
 
         let muted = |s: String| {
             text(s).size(12.0).style(|theme: &Theme| {
@@ -499,6 +546,39 @@ impl Inkpad {
 
         let status = mouse_area(status).on_press(Message::DragWindow);
         let layout = column![drag_strip, page, status].height(Length::Fill);
+
+        // Invisible resize handles along the edges and corners of the window.
+        let handles = {
+            use iced::mouse::Interaction as I;
+            use window::Direction as D;
+            let h = |w: Length, hgt: Length, dir: D, cursor: I| {
+                mouse_area(space().width(w).height(hgt))
+                    .on_press(Message::ResizeWindow(dir))
+                    .interaction(cursor)
+            };
+            let (edge, fill) = (Length::Fixed(EDGE), Length::Fill);
+            column![
+                row![
+                    h(edge, edge, D::NorthWest, I::ResizingDiagonallyDown),
+                    h(fill, edge, D::North, I::ResizingVertically),
+                    h(edge, edge, D::NorthEast, I::ResizingDiagonallyUp),
+                ],
+                row![
+                    h(edge, fill, D::West, I::ResizingHorizontally),
+                    space().width(fill).height(fill),
+                    h(edge, fill, D::East, I::ResizingHorizontally),
+                ]
+                .height(fill),
+                row![
+                    h(edge, edge, D::SouthWest, I::ResizingDiagonallyUp),
+                    h(fill, edge, D::South, I::ResizingVertically),
+                    h(edge, edge, D::SouthEast, I::ResizingDiagonallyDown),
+                ],
+            ]
+            .width(fill)
+            .height(fill)
+        };
+        let layout = stack![layout, handles].width(Length::Fill).height(Length::Fill);
 
         container(layout)
             .width(Length::Fill)
