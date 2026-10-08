@@ -13,7 +13,7 @@ use iced::advanced::text::editor::{Cursor, Edit, Motion};
 use iced::advanced::text::{LineHeight, Wrapping};
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 use iced::keyboard::{self, Key, Modifiers};
-use iced::widget::{column, container, row, space, text};
+use iced::widget::{button, column, container, row, space, text};
 
 use editor::widget::{self as text_editor, TextEditor};
 use history::{History, position_at};
@@ -421,10 +421,33 @@ impl Inkpad {
             .center_x(Length::Fill)
             .height(Length::Fill);
 
-        let muted = |s: String| text(s).size(12.0).style(|theme: &Theme| {
-            let p = theme.palette();
-            text::Style { color: Some(mix(p.text, p.background, 0.45)) }
-        });
+        let muted = |s: String| {
+            text(s).size(12.0).style(|theme: &Theme| {
+                let p = theme.palette();
+                text::Style { color: Some(mix(p.text, p.background, 0.45)) }
+            })
+        };
+        // Status bar items that act as flat buttons: muted text, highlighted on hover.
+        let item = |label: String, active: bool, msg: Message| {
+            button(text(label).size(12.0))
+                .padding(Padding::new(2.0).left(6.0).right(6.0))
+                .on_press(msg)
+                .style(move |theme: &Theme, status| {
+                    let p = theme.palette();
+                    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let color = if hovered || active {
+                        p.text
+                    } else {
+                        mix(p.text, p.background, 0.45)
+                    };
+                    button::Style {
+                        background: hovered.then(|| iced::Background::Color(mix(p.text, p.background, 0.9))),
+                        text_color: color,
+                        border: Border::default().rounded(4.0),
+                        ..button::Style::default()
+                    }
+                })
+        };
 
         let status = row![
             muted(format!("{} words", self.stats.words)),
@@ -435,14 +458,18 @@ impl Inkpad {
             space().width(Length::Fill),
             muted(self.notice.clone().unwrap_or_default()),
             space().width(16),
-            muted(format!("Focus: {}", self.focus.label())),
-            muted("·".into()),
-            muted(format!("Typewriter: {}", if self.typewriter { "On" } else { "Off" })),
-            muted("·".into()),
-            muted(format!("{} · {}", self.font.label(), self.theme.label())),
+            item(format!("Focus: {}", self.focus.label()), self.focus != FocusMode::Off, Message::CycleFocus),
+            item(
+                format!("Typewriter: {}", if self.typewriter { "On" } else { "Off" }),
+                self.typewriter,
+                Message::ToggleTypewriter,
+            ),
+            item(self.font.label().to_owned(), false, Message::CycleFont),
+            item(self.theme.label().to_owned(), false, Message::CycleTheme),
         ]
-        .spacing(8)
-        .padding(Padding::new(6.0).left(16.0).right(16.0));
+        .spacing(4)
+        .align_y(iced::Alignment::Center)
+        .padding(Padding::new(4.0).left(16.0).right(12.0));
 
         let layout = column![page, status].height(Length::Fill);
 
