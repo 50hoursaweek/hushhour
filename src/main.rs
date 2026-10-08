@@ -13,7 +13,9 @@ use iced::advanced::text::editor::{Cursor, Edit, Motion};
 use iced::advanced::text::{LineHeight, Wrapping};
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 use iced::keyboard::{self, Key, Modifiers};
-use iced::widget::{button, column, container, row, space, text};
+use iced::keyboard::key::Named;
+use iced::widget::{button, column, container, mouse_area, row, space, text};
+use iced::window;
 
 use editor::widget::{self as text_editor, TextEditor};
 use history::{History, position_at};
@@ -26,6 +28,7 @@ use stats::Stats;
 
 const APP_NAME: &str = "Inkpad";
 const MIN_SIZE: f32 = 12.0;
+const DRAG_STRIP: f32 = 28.0;
 const MAX_SIZE: f32 = 40.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -83,6 +86,7 @@ struct Inkpad {
     theme: ThemeKind,
     font: FontKind,
     size: f32,
+    fullscreen: bool,
     highlight: HlSettings,
     stats: Stats,
     notice: Option<String>,
@@ -108,6 +112,11 @@ enum Message {
     KeyPressed(Key, Modifiers),
     SelfTest,
     CursorToEnd,
+    DragWindow,
+    ToggleMaximize,
+    ToggleFullscreen,
+    ToggleDecorations,
+    Quit,
 }
 
 impl Inkpad {
@@ -123,6 +132,7 @@ impl Inkpad {
             theme: ThemeKind::Light,
             font: FontKind::Duo,
             size: 18.0,
+            fullscreen: false,
             highlight: HlSettings::default(),
             stats: Stats::default(),
             notice: None,
@@ -235,6 +245,15 @@ impl Inkpad {
                 self.size = (self.size - 1.0).max(MIN_SIZE);
                 Task::none()
             }
+            Message::DragWindow => window::latest().and_then(window::drag),
+            Message::ToggleMaximize => window::latest().and_then(window::toggle_maximize),
+            Message::ToggleDecorations => window::latest().and_then(window::toggle_decorations),
+            Message::ToggleFullscreen => {
+                self.fullscreen = !self.fullscreen;
+                let mode = if self.fullscreen { window::Mode::Fullscreen } else { window::Mode::Windowed };
+                window::latest().and_then(move |id| window::set_mode(id, mode))
+            }
+            Message::Quit => iced::exit(),
             Message::CursorToEnd => {
                 self.content.perform(text_editor::Action::Move(Motion::DocumentEnd));
                 self.refresh_focus();
@@ -393,7 +412,7 @@ impl Inkpad {
             .font(font)
             .size(self.size)
             .line_height(LineHeight::Relative(1.65))
-            .padding(Padding::new(64.0).left(32.0).right(32.0))
+            .padding(Padding::new(64.0).top(64.0 - DRAG_STRIP).left(32.0).right(32.0))
             .wrapping(Wrapping::Word)
             .height(Length::Fill)
             .highlight_with::<MarkdownHighlighter>(self.highlight.clone(), highlight::to_format)
@@ -420,6 +439,13 @@ impl Inkpad {
             .max_width(760.0 + 64.0)
             .center_x(Length::Fill)
             .height(Length::Fill);
+
+        // Without window decorations this strip is the handle for moving the
+        // window; double-click maximises, like a title bar would.
+        let drag_strip = mouse_area(space().width(Length::Fill).height(DRAG_STRIP))
+            .on_press(Message::DragWindow)
+            .on_double_click(Message::ToggleMaximize)
+            .interaction(iced::mouse::Interaction::Grab);
 
         let muted = |s: String| {
             text(s).size(12.0).style(|theme: &Theme| {
@@ -471,7 +497,8 @@ impl Inkpad {
         .align_y(iced::Alignment::Center)
         .padding(Padding::new(4.0).left(16.0).right(12.0));
 
-        let layout = column![page, status].height(Length::Fill);
+        let status = mouse_area(status).on_press(Message::DragWindow);
+        let layout = column![drag_strip, page, status].height(Length::Fill);
 
         container(layout)
             .width(Length::Fill)
@@ -486,6 +513,9 @@ impl Inkpad {
 
 /// Keyboard shortcuts, shared by the editor key binding and the global listener.
 fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
+    if let Key::Named(Named::F11) = key {
+        return Some(Message::ToggleFullscreen);
+    }
     if !modifiers.command() {
         return None;
     }
@@ -496,7 +526,10 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
         Key::Character("S") => Some(Message::SaveAs),
         Key::Character("o") => Some(Message::Open),
         Key::Character("n") => Some(Message::New),
+        Key::Character("d") if shift => Some(Message::ToggleDecorations),
+        Key::Character("D") => Some(Message::ToggleDecorations),
         Key::Character("d") => Some(Message::CycleFocus),
+        Key::Character("q") | Key::Character("w") => Some(Message::Quit),
         Key::Character("t") if shift => Some(Message::CycleTheme),
         Key::Character("T") => Some(Message::CycleTheme),
         Key::Character("t") => Some(Message::ToggleTypewriter),
@@ -559,6 +592,7 @@ pub fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Italic.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-BoldItalic.ttf").as_slice())
         .window_size((1100.0, 780.0))
+        .decorations(false)
         .antialiasing(true)
         .run()
 }

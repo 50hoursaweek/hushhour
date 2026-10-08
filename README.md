@@ -22,6 +22,13 @@ cargo run -- examples/sample.md
 | Ctrl+Shift+T | Cycle theme: light, sepia, dark |
 | Ctrl+Shift+F | Cycle font: Duo, Mono, Quattro |
 | Ctrl+= / Ctrl+- | Zoom |
+| F11 | Toggle fullscreen |
+| Ctrl+Shift+D | Toggle window decorations (off by default) |
+| Ctrl+Q / Ctrl+W | Quit |
+
+The window has no title bar. Drag the top strip or the status bar to move it,
+double-click the top strip to maximise, and use your compositor's resize
+gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
 
 Debug flags: `--typewriter` starts with typewriter mode on, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
