@@ -1662,10 +1662,12 @@ dependencies = [
 name = "inkpad"
 version = "0.1.0"
 dependencies = [
+ "cosmic-text",
  "dirs",
  "iced",
  "pulldown-cmark",
  "rfd",
+ "smol_str",
 ]
 
 [[package]]

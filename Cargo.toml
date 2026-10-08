@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cosmic-text = "0.15"
 dirs = "6"
 iced = { version = "0.14", features = ["advanced", "tokio", "image"] }
 pulldown-cmark = "0.13"
 rfd = "0.17"
+smol_str = "0.2"
 
 # Keep debug builds responsive: optimise dependencies (wgpu, cosmic-text) even in dev.
 [profile.dev.package."*"]
