@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Inkpad
+Comment=Distraction-free Markdown writing
+Exec=inkpad %f
+Icon=inkpad
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;text/plain;
+StartupWMClass=inkpad
