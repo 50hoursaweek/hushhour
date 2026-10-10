@@ -1,2 +1,4 @@
 target/
 dist/
+# Source recordings supplied for the sound sets; only the cut samples in assets/sounds are used.
+assets/*.zip
