@@ -17,7 +17,7 @@ use iced::advanced::text::{LineHeight, Wrapping};
 use iced::keyboard::{self, Key, Modifiers};
 use iced::keyboard::key::Named;
 use iced::widget::{
-    button, column, container, mouse_area, opaque, pick_list, row, rule, slider, space, stack, text, toggler,
+    button, column, container, scrollable, mouse_area, opaque, pick_list, row, rule, slider, space, stack, text, toggler,
 };
 use iced::window;
 
@@ -68,6 +68,7 @@ struct Inkpad {
     fullscreen: bool,
     maximized: bool,
     window_width: f32,
+    window_height: f32,
     top_strip_hovered: bool,
     highlight: HlSettings,
     stats: Stats,
@@ -139,6 +140,7 @@ impl Inkpad {
             fullscreen: false,
             maximized: false,
             window_width: WINDOW_SIZE.0,
+            window_height: WINDOW_SIZE.1,
             top_strip_hovered: false,
             highlight: HlSettings::default(),
             stats: Stats::default(),
@@ -325,6 +327,7 @@ impl Inkpad {
             // the corners are square while maximised or fullscreen.
             Message::WindowResized(size) => {
                 self.window_width = size.width;
+                self.window_height = size.height;
                 window::latest().and_then(window::is_maximized).map(Message::Maximized)
             }
             Message::Maximized(maximized) => {
@@ -641,11 +644,13 @@ impl Inkpad {
             heading("ABOUT"),
             muted(format!("{APP_NAME} {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
         ]
-        .spacing(6)
+        .spacing(4)
         .width(340.0);
 
-        let card = container(card)
-            .padding(16)
+        // Scroll when the card is taller than the window, so nothing is clipped.
+        let card = container(scrollable(container(card).padding(Padding::new(0.0).right(8.0))))
+            .max_height((self.window_height - DRAG_STRIP - 24.0).max(200.0))
+            .padding(Padding::new(16.0).right(8.0))
             .style(|theme: &Theme| {
                 let p = theme.palette();
                 container::Style {
