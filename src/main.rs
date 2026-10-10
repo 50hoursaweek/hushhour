@@ -33,6 +33,8 @@ use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MIN_LINE_HEIGHT, MIN_SIZE, Pref
 use stats::Stats;
 
 const APP_NAME: &str = "Inkpad";
+/// Incremented by build.rs on every build; see the About section of the menu.
+const BUILD: &str = env!("INKPAD_BUILD");
 const DRAG_STRIP: f32 = 28.0;
 // Text column layout. The measure is set in characters so it scales with the font;
 // effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
@@ -635,6 +637,9 @@ impl Inkpad {
             action("Fullscreen", "F11", Message::ToggleFullscreen),
             action("Toggle decorations", "Ctrl+Shift+D", Message::ToggleDecorations),
             action("Quit", "Ctrl+Q", Message::Quit),
+            divider(),
+            heading("ABOUT"),
+            muted(format!("{APP_NAME} {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
         ]
         .spacing(6)
         .width(340.0);

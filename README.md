@@ -55,6 +55,10 @@ padding on each side. The body size steps up with the window width (18, 20 and 2
 with the default size preference, at 900 and 1400 px) so the column fills more of a
 large screen; the size preference and Ctrl+= / Ctrl+- shift all three steps.
 
+The menu's About section shows the version and a build number. `build.rs` increments
+`build-number` on every build that follows a source change, so a running copy can be
+matched to a build; the file is committed so numbers keep counting across machines.
+
 Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
