@@ -3,3 +3,6 @@ dist/
 # Source recordings supplied for the sound sets and bundled music; only the converted files are used.
 assets/*.zip
 assets/*-utc/
+# Secrets: never committed. Put OPENROUTER_API_KEY=... in .env for packaging/gen-tracks.py.
+.env
+*.key
