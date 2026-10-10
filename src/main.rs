@@ -1,9 +1,11 @@
 //! Inkpad: a quiet Markdown editor for Linux, built with iced.
 
+mod dsp;
 mod editor;
 mod frost;
 mod highlight;
 mod history;
+mod keys;
 mod music;
 mod palette;
 mod prefs;

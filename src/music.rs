@@ -16,9 +16,8 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-use crate::sound::{RATE, Rng};
-
-const SR: f32 = RATE as f32;
+use crate::dsp::{BandPass, LowPass, SR};
+use crate::sound::Rng;
 
 /// What plays in the background.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +29,7 @@ pub enum Music {
     Breeze,
     BinauralCalm,
     BinauralFocus,
+    Drone,
     /// A track shipped with the app, by file name in the bundled music directory.
     Bundled(String),
     /// A file in the user's music directory, by file name.
@@ -37,8 +37,9 @@ pub enum Music {
 }
 
 impl Music {
-    pub const BUILT_IN: [Self; 7] = [
+    pub const BUILT_IN: [Self; 8] = [
         Self::Off,
+        Self::Drone,
         Self::Rain,
         Self::Night,
         Self::Train,
@@ -56,6 +57,7 @@ impl Music {
             Self::Breeze => "Open window".into(),
             Self::BinauralCalm => "Alpha waves, 10 Hz (headphones)".into(),
             Self::BinauralFocus => "Beta waves, 15 Hz (headphones)".into(),
+            Self::Drone => "Focus drone".into(),
             Self::Bundled(name) | Self::File(name) => {
                 name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name).to_owned()
             }
@@ -72,6 +74,7 @@ impl Music {
             Self::Breeze => Box::new(Breeze::new()),
             Self::BinauralCalm => Box::new(Binaural::new(200.0, 10.0)),
             Self::BinauralFocus => Box::new(Binaural::new(220.0, 15.0)),
+            Self::Drone => Box::new(Drone::new()),
             Self::Bundled(name) => Box::new(FileSource::open(&dirs.bundled.as_ref()?.join(name))?),
             Self::File(name) => Box::new(FileSource::open(&dirs.user.join(name))?),
         })
@@ -142,54 +145,15 @@ pub fn scan_music_dir(dir: &Path) -> Vec<String> {
 /// A stereo audio generator. `fill` writes interleaved L/R frames.
 pub trait Source: Send {
     fn fill(&mut self, out: &mut [f32]);
+
+    /// Fade-in and fade-out times in seconds when this source starts or stops.
+    fn fade_seconds(&self) -> (f32, f32) {
+        (1.5, 1.5)
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Building blocks
-
-/// One-pole low-pass filter.
-#[derive(Clone, Copy)]
-struct LowPass {
-    a: f32,
-    y: f32,
-}
-
-impl LowPass {
-    fn new(cutoff_hz: f32) -> Self {
-        Self { a: coefficient(cutoff_hz), y: 0.0 }
-    }
-
-    fn set(&mut self, cutoff_hz: f32) {
-        self.a = coefficient(cutoff_hz);
-    }
-
-    fn run(&mut self, x: f32) -> f32 {
-        self.y += self.a * (x - self.y);
-        self.y
-    }
-}
-
-fn coefficient(cutoff_hz: f32) -> f32 {
-    1.0 - (-TAU * cutoff_hz / SR).exp()
-}
-
-/// Band-pass as the difference of two one-pole filters.
-#[derive(Clone, Copy)]
-struct BandPass {
-    low: LowPass,
-    high: LowPass,
-}
-
-impl BandPass {
-    fn new(low_hz: f32, high_hz: f32) -> Self {
-        Self { low: LowPass::new(high_hz), high: LowPass::new(low_hz) }
-    }
-
-    fn run(&mut self, x: f32) -> f32 {
-        let wide = self.low.run(x);
-        wide - self.high.run(wide)
-    }
-}
 
 /// Slow sine oscillator for modulation, in 0..=1.
 struct Lfo {
@@ -581,6 +545,167 @@ impl Source for Binaural {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Focus drone: a breathing pad on a low major chord, through a soft reverb
+
+/// One pad voice: two oscillator slots cross-faded so the pitch can move and return.
+struct DroneVoice {
+    base_hz: f32,
+    freq: [f32; 2],
+    phase: [f32; 2],
+    /// Weight of the second slot, gliding towards `target` over about three seconds.
+    blend: f32,
+    target: f32,
+    triangle: bool,
+    lfo: Lfo,
+}
+
+impl DroneVoice {
+    fn new(rng: &mut Rng, base_hz: f32, triangle: bool) -> Self {
+        // ±5 cents of detune keeps the chord alive.
+        let hz = base_hz * 2f32.powf(rng.range(-5.0, 5.0) / 1200.0);
+        let period = 1.0 / rng.range(0.05, 0.15);
+        Self {
+            base_hz: hz,
+            freq: [hz, hz],
+            phase: [rng.range(0.0, 1.0), rng.range(0.0, 1.0)],
+            blend: 0.0,
+            target: 0.0,
+            triangle,
+            lfo: Lfo::new(rng, period),
+        }
+    }
+
+    fn run(&mut self) -> f32 {
+        let step = 1.0 / (3.0 * SR);
+        if self.blend < self.target {
+            self.blend = (self.blend + step).min(self.target);
+        } else if self.blend > self.target {
+            self.blend = (self.blend - step).max(self.target);
+        }
+        let mut s = 0.0;
+        for (slot, weight) in [(0usize, 1.0 - self.blend), (1, self.blend)] {
+            if weight <= 0.0 {
+                continue;
+            }
+            self.phase[slot] = (self.phase[slot] + self.freq[slot] / SR) % 1.0;
+            let p = self.phase[slot];
+            let osc = if self.triangle { 1.0 - 4.0 * (p - 0.5).abs() } else { (p * TAU).sin() };
+            s += osc * weight;
+        }
+        s * (0.55 + 0.45 * self.lfo.next())
+    }
+}
+
+/// A Schroeder reverb: parallel damped combs into two all-passes, per channel.
+struct Reverb {
+    combs: Vec<(Vec<f32>, usize, f32)>,
+    allpasses: Vec<(Vec<f32>, usize)>,
+}
+
+impl Reverb {
+    /// `offset` shifts the delay lengths so the two channels decorrelate.
+    fn new(offset: usize) -> Self {
+        let combs = [1116, 1188, 1277, 1356].iter().map(|d| (vec![0.0; d + offset], 0, 0.0)).collect();
+        let allpasses = [556, 441].iter().map(|d| (vec![0.0; d + offset], 0)).collect();
+        Self { combs, allpasses }
+    }
+
+    fn run(&mut self, x: f32) -> f32 {
+        let mut out = 0.0;
+        for (line, pos, damp) in &mut self.combs {
+            let y = line[*pos];
+            // Damping: high frequencies die faster, like a real room. Feedback 0.94 gives ~3 s.
+            *damp += 0.3 * (y - *damp);
+            line[*pos] = x + *damp * 0.94;
+            *pos = (*pos + 1) % line.len();
+            out += y;
+        }
+        let mut y = out * 0.25;
+        for (line, pos) in &mut self.allpasses {
+            let delayed = line[*pos];
+            let v = y + delayed * 0.5;
+            line[*pos] = v;
+            *pos = (*pos + 1) % line.len();
+            y = delayed - v * 0.5;
+        }
+        y
+    }
+}
+
+struct Drone {
+    rng: Rng,
+    voices: Vec<DroneVoice>,
+    brown: f32,
+    brown_lp: LowPass,
+    master_lp: [LowPass; 2],
+    reverb: [Reverb; 2],
+    /// Samples until the next pitch move; `moving` is the voice currently away from its root.
+    until_move: f32,
+    moving: Option<usize>,
+}
+
+impl Drone {
+    fn new() -> Self {
+        let mut rng = Rng::new();
+        // C2 major: C2, E2, G2, C3.
+        let chord = [65.41, 82.41, 98.0, 130.81];
+        let voices = chord.iter().enumerate().map(|(i, hz)| DroneVoice::new(&mut rng, *hz, i % 2 == 0)).collect();
+        Self {
+            voices,
+            brown: 0.0,
+            brown_lp: LowPass::new(400.0),
+            master_lp: [LowPass::new(1200.0), LowPass::new(1200.0)],
+            reverb: [Reverb::new(0), Reverb::new(23)],
+            until_move: rng.range(20.0, 40.0) * SR,
+            moving: None,
+            rng,
+        }
+    }
+}
+
+impl Source for Drone {
+    fn fill(&mut self, out: &mut [f32]) {
+        for frame in out.chunks_mut(2) {
+            self.until_move -= 1.0;
+            if self.until_move <= 0.0 {
+                self.until_move = self.rng.range(20.0, 40.0) * SR;
+                match self.moving.take() {
+                    // Bring the moved voice back to its root.
+                    Some(i) => self.voices[i].target = 0.0,
+                    None => {
+                        let i = (self.rng.next_u64() % self.voices.len() as u64) as usize;
+                        let ratio = [6.0 / 5.0, 5.0 / 4.0, 3.0 / 2.0][(self.rng.next_u64() % 3) as usize];
+                        let voice = &mut self.voices[i];
+                        voice.freq[1] = voice.base_hz * ratio;
+                        voice.target = 1.0;
+                        self.moving = Some(i);
+                    }
+                }
+            }
+            let mut pad = 0.0;
+            for voice in &mut self.voices {
+                pad += voice.run() * 0.12;
+            }
+            self.brown = (self.brown + 0.02 * self.rng.noise()) * 0.995;
+            // Brown noise at about 5 % of the pad level.
+            let noise = self.brown_lp.run(self.brown) * 0.025;
+            let dry = pad + noise;
+            for ch in 0..2 {
+                let once = self.master_lp[ch].run(dry);
+                let filtered = self.master_lp[ch].run(once);
+                let wet = self.reverb[ch].run(filtered);
+                frame[ch] = (filtered * 0.6 + wet * 0.4) * 0.8;
+            }
+        }
+    }
+
+    fn fade_seconds(&self) -> (f32, f32) {
+        (3.0, 2.0)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // A file from the music directory, looped
 
@@ -699,6 +824,7 @@ impl Source for FileSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sound::RATE;
 
     /// Every generator must produce a sane, finite signal at a modest level.
     #[test]
@@ -722,14 +848,27 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("inkpad-music-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("tone.wav");
-        let spec = hound::WavSpec { channels: 1, sample_rate: 22_050, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
-        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
-        for i in 0..11_025 {
-            // 0.5 s of a 220 Hz tone at half scale.
-            let v = (i as f32 * 220.0 * TAU / 22_050.0).sin() * 0.5;
-            writer.write_sample((v * i16::MAX as f32) as i16).unwrap();
+        // 0.5 s of a 220 Hz tone at half scale, as a minimal 16-bit mono WAV.
+        let samples: Vec<i16> =
+            (0..11_025).map(|i| ((i as f32 * 220.0 * TAU / 22_050.0).sin() * 0.5 * i16::MAX as f32) as i16).collect();
+        let data_len = (samples.len() * 2) as u32;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&22_050u32.to_le_bytes());
+        bytes.extend_from_slice(&(22_050u32 * 2).to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for s in &samples {
+            bytes.extend_from_slice(&s.to_le_bytes());
         }
-        writer.finalize().unwrap();
+        std::fs::write(&path, bytes).unwrap();
 
         let mut source = FileSource::open(&path).expect("open wav");
         // Pull 2 s at 44.1 kHz: four passes over the file.

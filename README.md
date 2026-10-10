@@ -45,14 +45,14 @@ Preferences (theme, font, size, line height, spotlight, anchor) are
 saved to `~/.config/inkpad/preferences` whenever they change.
 
 A key sound plays on every edit; the Sound and music dialog has a switch, a choice of two
-sound sets (gentle and mechanical, both synthesised by `packaging/gen-sounds.py`) and a
-volume slider for it.
+sound sets (soft and typewriter, synthesised per press from noise bursts and tones, so
+no two presses are identical; Enter and Backspace sound different) and a volume slider.
 Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
 without it the editor is simply silent.
 
-Background music lives in the Sound and music dialog: four generated soundscapes
-that never repeat (Rainfall with an occasional gong, Cricket night, Night train, Open
-window) and two binaural beats (Alpha waves at 10 Hz, Beta waves at 15 Hz; headphones
+Background music lives in the Sound and music dialog: five generated soundscapes
+that never repeat (a Focus drone on a low chord that breathes and drifts, Rainfall with
+an occasional gong, Cricket night, Night train, Open window) and two binaural beats (Alpha waves at 10 Hz, Beta waves at 15 Hz; headphones
 needed), plus any tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav;
 they loop). Tracks dropped in `assets/music` before packaging ship inside the AppImage,
 but none are tracked in the repository.
@@ -87,16 +87,17 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/palette.rs` – light, sepia and dark colour schemes
 - `src/prefs.rs` – user preferences and their on-disk format
 - `src/sound.rs` – mixer thread for key sounds and music, played through ALSA (loaded at runtime)
+- `src/keys.rs` – key sounds synthesised per press
 - `src/music.rs` – generated soundscapes, binaural beats and looped playback of the user's own tracks
-- `assets/sounds/` – synthesised key sounds (see `packaging/gen-sounds.py`)
+- `src/dsp.rs` – filters shared by the above
 - `src/stats.rs` – word, character, sentence counts and reading time
 - `assets/fonts/` – iA Writer Duo, Mono and Quattro for the editor, Lato Light for the menu and dialogs (both SIL OFL)
 
 ## Licensing of bundled assets
 
 Everything that ships with Inkpad is redistributable: the iA Writer fonts and Lato are
-under the SIL Open Font License (see `assets/fonts/`), the typing sounds are generated,
-and the soundscapes are synthesised in code. No recordings are included.
+under the SIL Open Font License (see `assets/fonts/`); the typing sounds and the
+soundscapes are synthesised in code. No audio files are included at all.
 
 ## Roadmap
 

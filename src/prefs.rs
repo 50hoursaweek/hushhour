@@ -74,17 +74,17 @@ impl fmt::Display for FontKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SoundSet {
     #[default]
-    Gentle,
-    Mechanical,
+    Soft,
+    Typewriter,
 }
 
 impl SoundSet {
-    pub const ALL: [Self; 2] = [Self::Gentle, Self::Mechanical];
+    pub const ALL: [Self; 2] = [Self::Soft, Self::Typewriter];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Gentle => "Gentle",
-            Self::Mechanical => "Mechanical",
+            Self::Soft => "Soft",
+            Self::Typewriter => "Typewriter",
         }
     }
 }
@@ -131,7 +131,7 @@ impl Default for Preferences {
             focus: FocusMode::Off,
             typewriter: false,
             typing_sound: true,
-            sound_set: SoundSet::Gentle,
+            sound_set: SoundSet::Soft,
             sound_volume: 0.6,
             show_welcome: true,
             frost: false,
@@ -241,7 +241,7 @@ mod tests {
             focus: FocusMode::Sentence,
             typewriter: true,
             typing_sound: false,
-            sound_set: SoundSet::Mechanical,
+            sound_set: SoundSet::Typewriter,
             sound_volume: 0.25,
             show_welcome: false,
             frost: true,
