@@ -43,6 +43,13 @@ A key sound plays on every edit; the menu has a switch, a choice of four sound s
 Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
 without it the editor is simply silent.
 
+Background music for focus lives in the menu's Music section: five generated
+soundscapes that never repeat (spring rain with an occasional gong, a night in
+Menorca with crickets, a train ride, curtains swaying in a breeze) and two binaural
+beats (10 Hz calm, 15 Hz focus; headphones needed), plus any tracks you put in
+`~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop). Switching
+cross-fades over 1.5 s, and the music has its own volume.
+
 The text column is 66 characters wide at most and centred, with at least 1.75 em of
 padding on each side. The body size steps up with the window width (18, 20 and 22 px
 with the default size preference, at 900 and 1400 px) so the column fills more of a
@@ -60,7 +67,8 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/highlight.rs` – line-based Markdown highlighter plus focus-mode dimming
 - `src/palette.rs` – light, sepia and dark colour schemes
 - `src/prefs.rs` – user preferences and their on-disk format
-- `src/sound.rs` – gentle key sounds, mixed in a thread and played through ALSA (loaded at runtime)
+- `src/sound.rs` – mixer thread for key sounds and music, played through ALSA (loaded at runtime)
+- `src/music.rs` – generated soundscapes, binaural beats and looped playback of the user's own tracks
 - `assets/sounds/` – key samples: a CC0 set by unicaegames plus two cut from supplied recordings (see `LICENSE-sounds.md`)
 - `src/stats.rs` – word, character, sentence counts and reading time
 - `assets/fonts/` – iA Writer Duo, Mono and Quattro (SIL OFL, see `LICENSE-iA-Fonts.md`)

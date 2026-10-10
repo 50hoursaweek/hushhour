@@ -12,6 +12,7 @@ libloading = "0.9.0"
 pulldown-cmark = "0.13"
 rfd = "0.17"
 smol_str = "0.2"
+symphonia = { version = "0.5", features = ["mp3"] }
 
 # Keep debug builds responsive: optimise dependencies (wgpu, cosmic-text) even in dev.
 [profile.dev.package."*"]

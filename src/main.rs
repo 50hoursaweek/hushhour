@@ -3,6 +3,7 @@
 mod editor;
 mod highlight;
 mod history;
+mod music;
 mod palette;
 mod prefs;
 mod sound;
@@ -27,6 +28,7 @@ use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Subscrip
 use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence_at};
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
+use music::Music;
 use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet};
 use stats::Stats;
 
@@ -57,6 +59,9 @@ struct Inkpad {
     dirty: bool,
     prefs: Preferences,
     sound: sound::Sound,
+    music_dir: PathBuf,
+    /// Menu options for the music picker: the built-ins, then the files found in `music_dir`.
+    music_options: Vec<Music>,
     menu_open: bool,
     fullscreen: bool,
     maximized: bool,
@@ -108,11 +113,16 @@ enum Message {
     SetTypingSound(bool),
     SetSoundSet(SoundSet),
     SetSoundVolume(f32),
+    SetMusic(Music),
+    SetMusicVolume(f32),
     Quit,
 }
 
 impl Inkpad {
     fn new() -> (Self, Task<Message>) {
+        let music_dir = music::music_dir().unwrap_or_else(|| PathBuf::from("music"));
+        // Create the folder so it is easy to find and drop tracks into.
+        let _ = std::fs::create_dir_all(&music_dir);
         let app = Self {
             content: text_editor::Content::new(),
             text: String::new(),
@@ -120,7 +130,9 @@ impl Inkpad {
             path: None,
             dirty: false,
             prefs: Preferences::load(),
-            sound: sound::Sound::start(),
+            sound: sound::Sound::start(music_dir.clone()),
+            music_dir,
+            music_options: Vec::new(),
             menu_open: false,
             fullscreen: false,
             maximized: false,
@@ -131,6 +143,9 @@ impl Inkpad {
             notice: None,
         };
         let mut app = app;
+        app.refresh_music_options();
+        app.sound.set_music_volume(app.prefs.music_volume);
+        app.sound.set_music(app.prefs.music.clone());
         let mut tasks = vec![iced::widget::operation::focus_next()];
         for arg in std::env::args().skip(1) {
             match arg.as_str() {
@@ -274,7 +289,20 @@ impl Inkpad {
             }
             Message::ToggleMenu => {
                 self.menu_open = !self.menu_open;
+                if self.menu_open {
+                    self.refresh_music_options();
+                }
                 Task::none()
+            }
+            Message::SetMusic(music) => {
+                self.prefs.music = music.clone();
+                self.sound.set_music(music);
+                self.save_prefs()
+            }
+            Message::SetMusicVolume(v) => {
+                self.prefs.music_volume = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
+                self.sound.set_music_volume(self.prefs.music_volume);
+                self.save_prefs()
             }
             Message::CloseMenu => {
                 self.menu_open = false;
@@ -342,6 +370,12 @@ impl Inkpad {
                 }
             }
         }
+    }
+
+    /// Rescan the music folder for the picker.
+    fn refresh_music_options(&mut self) {
+        self.music_options = Music::BUILT_IN.to_vec();
+        self.music_options.extend(music::scan_music_dir(&self.music_dir).into_iter().map(Music::File));
     }
 
     /// Persist the preferences; a failure is reported in the status bar rather than fatal.
@@ -531,6 +565,7 @@ impl Inkpad {
         let size = self.prefs.size;
         let line_height = self.prefs.line_height;
         let volume = self.prefs.sound_volume;
+        let music_volume = self.prefs.music_volume;
         let card = column![
             heading("FILE"),
             action("New", "Ctrl+N", Message::New),
@@ -582,6 +617,19 @@ impl Inkpad {
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
             ),
+            divider(),
+            heading("MUSIC"),
+            setting("Music", pick(&self.music_options, self.prefs.music.clone(), Message::SetMusic)),
+            setting(
+                "Volume",
+                row![
+                    slider(0.0..=1.0, music_volume, Message::SetMusicVolume).step(0.05_f32),
+                    muted(format!("{:.0}%", music_volume * 100.0)).width(44.0),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            ),
+            muted(format!("Add your own tracks (mp3, ogg, flac, wav) in\n{}", self.music_dir.display())),
             divider(),
             heading("WINDOW"),
             action("Fullscreen", "F11", Message::ToggleFullscreen),

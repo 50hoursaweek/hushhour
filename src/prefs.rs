@@ -7,6 +7,7 @@ use iced::Font;
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 
 use crate::highlight::FocusMode;
+use crate::music::Music;
 use crate::palette::ThemeKind;
 
 pub const MIN_SIZE: f32 = 12.0;
@@ -109,6 +110,9 @@ pub struct Preferences {
     pub sound_set: SoundSet,
     /// 0..=1.
     pub sound_volume: f32,
+    pub music: Music,
+    /// 0..=1.
+    pub music_volume: f32,
 }
 
 impl Default for Preferences {
@@ -123,6 +127,8 @@ impl Default for Preferences {
             typing_sound: true,
             sound_set: SoundSet::Soft,
             sound_volume: 0.6,
+            music: Music::Off,
+            music_volume: 0.5,
         }
     }
 }
@@ -161,6 +167,8 @@ impl Preferences {
                 "typing_sound" => prefs.typing_sound = value == "true",
                 "sound_set" => prefs.sound_set = pick(&SoundSet::ALL, value).unwrap_or(prefs.sound_set),
                 "sound_volume" => prefs.sound_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.sound_volume),
+                "music" => prefs.music = Music::from_key(value),
+                "music_volume" => prefs.music_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.music_volume),
                 _ => {}
             }
         }
@@ -177,7 +185,7 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic = {}\nmusic_volume = {:.2}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
@@ -187,6 +195,8 @@ impl Preferences {
             self.typing_sound,
             self.sound_set.label(),
             self.sound_volume,
+            self.music.key(),
+            self.music_volume,
         )
     }
 }
@@ -217,6 +227,8 @@ mod tests {
             typing_sound: false,
             sound_set: SoundSet::Mechanical,
             sound_volume: 0.25,
+            music: Music::File("lofi beats.mp3".into()),
+            music_volume: 0.35,
         };
         assert_eq!(Preferences::parse(&prefs.serialize()), prefs);
     }
