@@ -1,7 +1,7 @@
 # Inkpad
 
 A quiet Markdown editor for Linux, written in Rust with [iced](https://iced.rs) 0.14.
-It grew out of admiration for iA Writer and OmmWriter and has its own identity:
+Inspired by the best distraction-free writing apps, with its own identity:
 the page is the whole window, a spotlight dims everything but what you are writing,
 the caret line can be anchored mid-screen, and typing sounds and soundscapes keep
 you company.
