@@ -140,6 +140,11 @@ impl Preferences {
         dirs::config_dir().map(|d| d.join("inkpad").join("preferences"))
     }
 
+    /// True until the preferences have been saved once, i.e. on the first launch.
+    pub fn is_first_run() -> bool {
+        !Self::path().is_some_and(|p| p.exists())
+    }
+
     /// Read the preferences file, falling back to defaults for anything missing or malformed.
     pub fn load() -> Self {
         Self::path()

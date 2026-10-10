@@ -33,6 +33,7 @@ and run `packaging/build-appimage.sh`; the result lands in `dist/`.
 The window has no title bar. Drag the top strip or the status bar to move it,
 double-click the top strip to maximise, and use your compositor's resize
 gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
+On the first launch a welcome dialog explains the menu and the sound settings.
 The ☰ button in the top-left corner opens the menu: file actions, then Appearance and
 Sound and music, which open dialogs, then the Writing and Window sections, then About.
 
@@ -63,7 +64,7 @@ The menu's About section shows the version and a build number. `build.rs` increm
 `build-number` on every build that follows a source change, so a running copy can be
 matched to a build; the file is committed so numbers keep counting across machines.
 
-Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--dialog=appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
+Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Layout

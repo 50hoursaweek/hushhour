@@ -59,6 +59,7 @@ const WINDOW_SIZE: (f32, f32) = (1100.0, 780.0);
 /// The dialogs reachable from the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Dialog {
+    Welcome,
     Appearance,
     Sound,
     About,
@@ -163,6 +164,11 @@ impl Inkpad {
             notice: None,
         };
         let mut app = app;
+        if Preferences::is_first_run() {
+            // Greet once, and save so the next launch starts straight in the editor.
+            app.dialog = Some(Dialog::Welcome);
+            let _ = app.prefs.save();
+        }
         app.refresh_music_options();
         // Music is never started automatically; only its volume is remembered.
         app.sound.set_music_volume(app.prefs.music_volume);
@@ -174,6 +180,7 @@ impl Inkpad {
                 "--dialog=appearance" => app.dialog = Some(Dialog::Appearance),
                 "--dialog=sound" => app.dialog = Some(Dialog::Sound),
                 "--dialog=about" => app.dialog = Some(Dialog::About),
+                "--dialog=welcome" => app.dialog = Some(Dialog::Welcome),
                 "--soundtest" => tasks.push(Task::done(Message::SoundTest)),
                 "--end" => tasks.push(Task::done(Message::CursorToEnd)),
                 "--selftest" => tasks.push(Task::done(Message::SelfTest)),
@@ -612,7 +619,20 @@ impl Inkpad {
         let volume = self.prefs.sound_volume;
         let music_volume = self.prefs.music_volume;
 
+        let paragraph = |s: &'static str| text(s).size(13.0).width(Length::Fill);
         let (title, body): (&str, Element<'_, Message>) = match dialog {
+            Dialog::Welcome => (
+                "Welcome to Inkpad",
+                column![
+                    paragraph("A quiet place to write Markdown. The page is the whole window: there is no toolbar, and the window has no title bar."),
+                    paragraph("The ☰ button in the top-left corner (or Ctrl+,) opens the menu, with file actions, Appearance, and Sound and music."),
+                    paragraph("Sound and music is where you pick a typing sound and a background soundscape: rain, a night of crickets, a train, a breeze, binaural beats, bundled tracks, or your own music."),
+                    muted(format!("Your own tracks (mp3, ogg, flac, wav) go in\n{}", self.music_dirs.user.display())),
+                    paragraph("Handy keys: Ctrl+D cycles focus mode, Ctrl+T toggles typewriter mode, Ctrl+S saves, F11 goes fullscreen."),
+                ]
+                .spacing(10)
+                .into(),
+            ),
             Dialog::Appearance => (
                 "Appearance",
                 column![
@@ -683,26 +703,29 @@ impl Inkpad {
             ),
         };
 
-        let done = button(text("Done").size(13.0))
-            .padding(Padding::new(5.0).left(14.0).right(14.0))
-            .on_press(Message::CloseMenu)
-            .style(|theme: &Theme, status| {
-                let p = theme.palette();
-                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style {
-                    background: Some(Background::Color(mix(p.text, p.background, if hovered { 0.8 } else { 0.88 }))),
-                    text_color: p.text,
-                    border: Border::default().rounded(6.0),
-                    ..button::Style::default()
-                }
-            });
-        let mut card = column![].spacing(14).width(if dialog == Dialog::About { 260.0 } else { 380.0 });
+        let done = dialog_button("Done", Message::CloseMenu);
+        let width = match dialog {
+            Dialog::About => 260.0,
+            Dialog::Welcome => 440.0,
+            _ => 380.0,
+        };
+        let mut card = column![].spacing(14).width(width);
         if !title.is_empty() {
             card = card.push(text(title).size(16.0));
         }
-        let card = card
-            .push(body)
-            .push(row![space().width(Length::Fill), done].width(Length::Fill));
+        let buttons: Element<'_, Message> = if dialog == Dialog::Welcome {
+            row![
+                space().width(Length::Fill),
+                dialog_button("Sound and music…", Message::OpenDialog(Dialog::Sound)),
+                dialog_button("Start writing", Message::CloseMenu),
+            ]
+            .spacing(8)
+            .width(Length::Fill)
+            .into()
+        } else {
+            row![space().width(Length::Fill), done].width(Length::Fill).into()
+        };
+        let card = card.push(body).push(buttons);
         let card = container(card).padding(20).style(card_style);
         // Clicking the backdrop closes the dialog, like the menu.
         opaque(mouse_area(center(opaque(card))).on_press(Message::CloseMenu))
@@ -992,6 +1015,24 @@ fn card_style(theme: &Theme) -> container::Style {
 /// A slider with its current value shown on the right.
 fn slider_row<'a>(control: iced::widget::Slider<'a, f32, Message>, label: String) -> Element<'a, Message> {
     row![control, muted(label).width(44.0)].spacing(8).align_y(iced::Alignment::Center).into()
+}
+
+/// A raised button for dialogs.
+fn dialog_button<'a>(label: &'static str, msg: Message) -> Element<'a, Message> {
+    button(text(label).size(13.0))
+        .padding(Padding::new(5.0).left(14.0).right(14.0))
+        .on_press(msg)
+        .style(|theme: &Theme, status| {
+            let p = theme.palette();
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(mix(p.text, p.background, if hovered { 0.8 } else { 0.88 }))),
+                text_color: p.text,
+                border: Border::default().rounded(6.0),
+                ..button::Style::default()
+            }
+        })
+        .into()
 }
 
 /// A labelled preference row in the menu.

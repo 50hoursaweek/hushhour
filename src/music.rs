@@ -62,31 +62,6 @@ impl Music {
         }
     }
 
-    /// Stable key for the preferences file.
-    pub fn key(&self) -> String {
-        match self {
-            Self::Off => "off".into(),
-            Self::Rain => "rain".into(),
-            Self::Night => "night".into(),
-            Self::Train => "train".into(),
-            Self::Breeze => "breeze".into(),
-            Self::BinauralCalm => "binaural-calm".into(),
-            Self::BinauralFocus => "binaural-focus".into(),
-            Self::Bundled(name) => format!("bundled:{name}"),
-            Self::File(name) => format!("file:{name}"),
-        }
-    }
-
-    pub fn from_key(key: &str) -> Self {
-        if let Some(name) = key.strip_prefix("bundled:") {
-            return Self::Bundled(name.to_owned());
-        }
-        if let Some(name) = key.strip_prefix("file:") {
-            return Self::File(name.to_owned());
-        }
-        Self::BUILT_IN.iter().find(|m| m.key() == key).cloned().unwrap_or(Self::Off)
-    }
-
     /// Build the source for this choice; `None` for `Off` or an unreadable file.
     pub fn source(&self, dirs: &MusicDirs) -> Option<Box<dyn Source>> {
         Some(match self {
@@ -770,15 +745,9 @@ mod tests {
     }
 
     #[test]
-    fn keys_round_trip() {
-        for music in &Music::BUILT_IN {
-            assert_eq!(&Music::from_key(&music.key()), music);
-        }
-        let file = Music::File("lofi.mp3".into());
-        assert_eq!(Music::from_key(&file.key()), file);
-        assert_eq!(file.label(), "lofi");
-        let bundled = Music::Bundled("Meditations.ogg".into());
-        assert_eq!(Music::from_key(&bundled.key()), bundled);
-        assert_eq!(bundled.label(), "Meditations");
+    fn labels_drop_extensions() {
+        assert_eq!(Music::File("lofi.mp3".into()).label(), "lofi");
+        assert_eq!(Music::Bundled("Meditations.ogg".into()).label(), "Meditations");
+        assert_eq!(Music::Off.label(), "Off");
     }
 }
