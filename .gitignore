@@ -6,5 +6,3 @@ assets/*-utc/
 # Secrets: never committed. Put OPENROUTER_API_KEY=... in .env for packaging/gen-tracks.py.
 .env
 *.key
-# Generated or supplied music tracks ship in the AppImage but are never committed.
-assets/music/
