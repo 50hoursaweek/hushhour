@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Inkpad
+Comment=A quiet Markdown editor
+Exec=inkpad %f
+Icon=io.github.50hoursaweek.inkpad
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;text/plain;
+Keywords=markdown;writing;editor;focus;
+StartupWMClass=io.github.50hoursaweek.inkpad

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.50hoursaweek.inkpad</id>
+  <name>Inkpad</name>
+  <summary>A quiet Markdown editor</summary>
+  <developer id="io.github.50hoursaweek">
+    <name>Francesco Di Maggio</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Inkpad is a distraction-free Markdown editor. The page is the whole window:
+      no toolbar, no title bar, just your text in a comfortable column that reflows
+      as you zoom.
+    </p>
+    <p>
+      A spotlight dims everything but the paragraph or sentence you are writing, the
+      caret line can be anchored mid-screen so the page scrolls under it, and a
+      frosted-glass mode lets the desktop show through. Light, sepia and dark themes
+      and three bundled writing fonts come with it.
+    </p>
+    <p>
+      Typing sounds and background music keep you company: gentle key sounds,
+      bundled instrumental loops, generated soundscapes (rain, a night of crickets,
+      a train, a breeze, a drone), or your own tracks.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.50hoursaweek.inkpad.desktop</launchable>
+  <url type="homepage">https://github.com/50hoursaweek/inkpad</url>
+  <url type="bugtracker">https://github.com/50hoursaweek/inkpad/issues</url>
+  <url type="vcs-browser">https://github.com/50hoursaweek/inkpad</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Writing in the light theme</caption>
+      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.0/packaging/screenshots/editor-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The dark theme with the menu open</caption>
+      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.0/packaging/screenshots/menu-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Sound and music settings</caption>
+      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.0/packaging/screenshots/sound-dialog.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#f7f7f7</color>
+    <color type="primary" scheme_preference="dark">#1b1b1b</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <releases>
+    <release version="0.1.0" date="2026-10-11">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
