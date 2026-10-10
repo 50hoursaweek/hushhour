@@ -9,6 +9,7 @@ mod keys;
 mod music;
 mod palette;
 mod prefs;
+mod scores;
 mod sound;
 mod stats;
 

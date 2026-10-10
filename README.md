@@ -50,9 +50,11 @@ no two presses are identical; Enter and Backspace sound different) and a volume 
 Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
 without it the editor is simply silent.
 
-Background music lives in the Sound and music dialog: five generated soundscapes
-that never repeat (a Focus drone on a low chord that breathes and drifts, Rainfall with
-an occasional gong, Cricket night, Night train, Open window) and two binaural beats (Alpha waves at 10 Hz, Beta waves at 15 Hz; headphones
+Background music lives in the Sound and music dialog: a synthesised piano playing either
+Piano drift (sparse pentatonic notes that never repeat) or Satie's Gymnopédie No. 1 (public
+domain; note data from the Mutopia Project's public-domain typesetting), five generated
+soundscapes that never repeat (a Focus drone on a low chord that breathes and drifts,
+Rainfall with an occasional gong, Cricket night, Night train, Open window) and two binaural beats (Alpha waves at 10 Hz, Beta waves at 15 Hz; headphones
 needed), plus any tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav;
 they loop). Tracks dropped in `assets/music` before packaging ship inside the AppImage,
 but none are tracked in the repository.
@@ -88,7 +90,8 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/prefs.rs` – user preferences and their on-disk format
 - `src/sound.rs` – mixer thread for key sounds and music, played through ALSA (loaded at runtime)
 - `src/keys.rs` – key sounds synthesised per press
-- `src/music.rs` – generated soundscapes, binaural beats and looped playback of the user's own tracks
+- `src/music.rs` – generated soundscapes, a synthesised piano, binaural beats and looped playback of the user's own tracks
+- `src/scores.rs` – public-domain scores as note tables (Satie, Gymnopédie No. 1)
 - `src/dsp.rs` – filters shared by the above
 - `src/stats.rs` – word, character, sentence counts and reading time
 - `assets/fonts/` – iA Writer Duo, Mono and Quattro for the editor, Lato Light for the menu and dialogs (both SIL OFL)
@@ -96,8 +99,10 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 ## Licensing of bundled assets
 
 Everything that ships with Inkpad is redistributable: the iA Writer fonts and Lato are
-under the SIL Open Font License (see `assets/fonts/`); the typing sounds and the
-soundscapes are synthesised in code. No audio files are included at all.
+under the SIL Open Font License (see `assets/fonts/`); the typing sounds, the
+soundscapes and the piano are synthesised in code, and the one score is Satie's
+public-domain Gymnopédie No. 1 as typeset by the Mutopia Project. No audio files are
+included at all.
 
 ## Roadmap
 
