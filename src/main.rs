@@ -1,6 +1,7 @@
 //! Inkpad: a quiet Markdown editor for Linux, built with iced.
 
 mod editor;
+mod frost;
 mod highlight;
 mod history;
 mod music;
@@ -29,7 +30,7 @@ use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
 use music::{Music, MusicDirs};
-use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet};
+use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet};
 use stats::Stats;
 
 const APP_NAME: &str = "Inkpad";
@@ -86,6 +87,9 @@ struct Inkpad {
     music_options: Vec<Music>,
     menu_open: bool,
     dialog: Option<Dialog>,
+    /// Compositor effects for the window; `None` until attached or when not on Wayland.
+    frost: Option<frost::Frost>,
+    frost_attach_started: bool,
     fullscreen: bool,
     maximized: bool,
     window_width: f32,
@@ -142,6 +146,10 @@ enum Message {
     SetMusic(Music),
     SetMusicVolume(f32),
     SetShowWelcome(bool),
+    FrostAttached(Option<frost::Frost>),
+    SetFrost(bool),
+    SetFrostTransparency(f32),
+    SetFrostThickness(f32),
     Quit,
 }
 
@@ -162,6 +170,8 @@ impl Inkpad {
             music_options: Vec::new(),
             menu_open: false,
             dialog: None,
+            frost: None,
+            frost_attach_started: false,
             fullscreen: false,
             maximized: false,
             window_width: WINDOW_SIZE.0,
@@ -308,6 +318,7 @@ impl Inkpad {
             }
             Message::SetTheme(theme) => {
                 self.prefs.theme = theme;
+                self.apply_frost();
                 self.save_prefs()
             }
             Message::SetFont(font) => {
@@ -374,7 +385,36 @@ impl Inkpad {
             Message::WindowResized(size) => {
                 self.window_width = size.width;
                 self.window_height = size.height;
-                window::latest().and_then(window::is_maximized).map(Message::Maximized)
+                let maximized = window::latest().and_then(window::is_maximized).map(Message::Maximized);
+                if self.frost_attach_started {
+                    return maximized;
+                }
+                // The window exists now: bind the compositor effects to it, once.
+                self.frost_attach_started = true;
+                let attach = window::latest()
+                    .and_then(|id| window::run(id, |w| frost::Frost::attach(w)))
+                    .map(Message::FrostAttached);
+                Task::batch([maximized, attach])
+            }
+            Message::FrostAttached(frost) => {
+                self.frost = frost;
+                self.apply_frost();
+                Task::none()
+            }
+            Message::SetFrost(on) => {
+                self.prefs.frost = on;
+                self.apply_frost();
+                self.save_prefs()
+            }
+            Message::SetFrostTransparency(v) => {
+                self.prefs.frost_transparency = ((v * 20.0).round() / 20.0).clamp(0.0, MAX_TRANSPARENCY);
+                self.apply_frost();
+                self.save_prefs()
+            }
+            Message::SetFrostThickness(v) => {
+                self.prefs.frost_thickness = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
+                self.apply_frost();
+                self.save_prefs()
             }
             Message::Maximized(maximized) => {
                 self.maximized = maximized;
@@ -421,6 +461,18 @@ impl Inkpad {
                 }
             }
         }
+    }
+
+    /// Push the current frost settings to the compositor, if attached.
+    fn apply_frost(&self) {
+        let Some(frost) = &self.frost else { return };
+        let bg = self.prefs.theme.theme().palette().background;
+        frost.apply(frost::Settings {
+            enabled: self.prefs.frost,
+            transparency: self.prefs.frost_transparency,
+            thickness: self.prefs.frost_thickness,
+            tint: [(bg.r * 255.0) as u8, (bg.g * 255.0) as u8, (bg.b * 255.0) as u8],
+        });
     }
 
     /// Rescan the music folder for the picker.
@@ -629,6 +681,8 @@ impl Inkpad {
         let line_height = self.prefs.line_height;
         let volume = self.prefs.sound_volume;
         let music_volume = self.prefs.music_volume;
+        let transparency = self.prefs.frost_transparency;
+        let thickness = self.prefs.frost_thickness;
 
         let paragraph = |s: &'static str| text(s).size(14.0).font(UI_FONT).width(Length::Fill);
         let (title, body): (&str, Element<'_, Message>) = match dialog {
@@ -670,6 +724,28 @@ impl Inkpad {
                             format!("{line_height:.2}"),
                         ),
                     ),
+                    divider(),
+                    heading("FROSTED GLASS"),
+                    setting("Frosted glass", toggler(self.prefs.frost).on_toggle(Message::SetFrost).size(18.0)),
+                    setting(
+                        "Transparency",
+                        slider_row(
+                            slider(0.0..=MAX_TRANSPARENCY, transparency, Message::SetFrostTransparency).step(0.05_f32),
+                            format!("{:.0}%", transparency * 100.0),
+                        ),
+                    ),
+                    setting(
+                        "Thickness",
+                        slider_row(
+                            slider(0.0..=1.0, thickness, Message::SetFrostThickness).step(0.05_f32),
+                            format!("{:.0}%", thickness * 100.0),
+                        ),
+                    ),
+                    muted(match self.frost.as_ref().map(frost::Frost::blur_supported) {
+                        Some(true) => "The desktop behind the window is blurred by the compositor.".to_owned(),
+                        Some(false) => "This desktop cannot blur behind windows (KDE Plasma can), so only the transparency applies.".to_owned(),
+                        None => "Checking what this desktop supports…".to_owned(),
+                    }),
                 ]
                 .spacing(8)
                 .into(),
@@ -794,7 +870,8 @@ impl Inkpad {
             .style(|theme: &Theme, _status| {
                 let p = theme.palette();
                 text_editor::Style {
-                    background: Background::Color(p.background),
+                    // The page container paints the (possibly translucent) background.
+                    background: Background::Color(Color::TRANSPARENT),
                     border: Border::default(),
                     placeholder: mix(p.text, p.background, 0.6),
                     value: p.text,
@@ -948,13 +1025,15 @@ impl Inkpad {
             layout = layout.push(self.dialog(dialog));
         }
 
-        // The window itself is transparent; this container paints the rounded page.
+        // The window itself is transparent; this container paints the rounded page,
+        // translucent when the frosted glass is on.
         let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
+        let page_alpha = if self.prefs.frost { 1.0 - self.prefs.frost_transparency } else { 1.0 };
         container(layout)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |theme: &Theme| container::Style {
-                background: Some(Background::Color(theme.palette().background)),
+                background: Some(Background::Color(Color { a: page_alpha, ..theme.palette().background })),
                 border: Border::default().rounded(radius),
                 ..container::Style::default()
             })

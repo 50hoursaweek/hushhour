@@ -15,6 +15,8 @@ pub const MAX_SIZE: f32 = 40.0;
 /// Default body line height, relative to the font size.
 pub const LINE_HEIGHT: f32 = 1.55;
 pub const MIN_LINE_HEIGHT: f32 = 1.2;
+/// The page never goes fully invisible.
+pub const MAX_TRANSPARENCY: f32 = 0.9;
 pub const MAX_LINE_HEIGHT: f32 = 2.2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,20 +74,16 @@ impl fmt::Display for FontKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SoundSet {
     #[default]
-    Soft,
-    Keyboard,
-    Typewriter,
+    Gentle,
     Mechanical,
 }
 
 impl SoundSet {
-    pub const ALL: [Self; 4] = [Self::Soft, Self::Keyboard, Self::Typewriter, Self::Mechanical];
+    pub const ALL: [Self; 2] = [Self::Gentle, Self::Mechanical];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Soft => "Soft keys",
-            Self::Keyboard => "Keyboard",
-            Self::Typewriter => "Typewriter",
+            Self::Gentle => "Gentle",
             Self::Mechanical => "Mechanical",
         }
     }
@@ -112,6 +110,11 @@ pub struct Preferences {
     pub sound_volume: f32,
     /// Show the welcome dialog at launch until the user opts out.
     pub show_welcome: bool,
+    pub frost: bool,
+    /// 0..=0.9: how see-through the page is when frosted.
+    pub frost_transparency: f32,
+    /// 0..=1: how heavily the backdrop is frosted, where the compositor can.
+    pub frost_thickness: f32,
     /// Not saved: the app always starts silent.
     pub music: Music,
     /// 0..=1.
@@ -128,9 +131,12 @@ impl Default for Preferences {
             focus: FocusMode::Off,
             typewriter: false,
             typing_sound: true,
-            sound_set: SoundSet::Soft,
+            sound_set: SoundSet::Gentle,
             sound_volume: 0.6,
             show_welcome: true,
+            frost: false,
+            frost_transparency: 0.35,
+            frost_thickness: 0.6,
             music: Music::Off,
             music_volume: 0.5,
         }
@@ -173,6 +179,9 @@ impl Preferences {
                 "sound_volume" => prefs.sound_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.sound_volume),
                 "music_volume" => prefs.music_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.music_volume),
                 "show_welcome" => prefs.show_welcome = value != "false",
+                "frost" => prefs.frost = value == "true",
+                "frost_transparency" => prefs.frost_transparency = parse_clamped(value, 0.0, MAX_TRANSPARENCY).unwrap_or(prefs.frost_transparency),
+                "frost_thickness" => prefs.frost_thickness = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.frost_thickness),
                 _ => {}
             }
         }
@@ -189,7 +198,7 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
@@ -201,6 +210,9 @@ impl Preferences {
             self.sound_volume,
             self.music_volume,
             self.show_welcome,
+            self.frost,
+            self.frost_transparency,
+            self.frost_thickness,
         )
     }
 }
@@ -232,6 +244,9 @@ mod tests {
             sound_set: SoundSet::Mechanical,
             sound_volume: 0.25,
             show_welcome: false,
+            frost: true,
+            frost_transparency: 0.5,
+            frost_thickness: 0.25,
             music: Music::Off,
             music_volume: 0.35,
         };

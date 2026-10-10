@@ -44,19 +44,25 @@ Sound and music, which open dialogs, then the Writing and Window sections, then 
 Preferences (theme, font, size, line height, spotlight, anchor) are
 saved to `~/.config/inkpad/preferences` whenever they change.
 
-A key sound plays on every edit; the Sound and music dialog has a switch, a choice of four
-sound sets (soft keys, keyboard, typewriter, mechanical) and a volume slider for it.
+A key sound plays on every edit; the Sound and music dialog has a switch, a choice of two
+sound sets (gentle and mechanical, both synthesised by `packaging/gen-sounds.py`) and a
+volume slider for it.
 Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
 without it the editor is simply silent.
 
 Background music lives in the Sound and music dialog: four generated soundscapes
 that never repeat (Rainfall with an occasional gong, Cricket night, Night train, Open
 window) and two binaural beats (Alpha waves at 10 Hz, Beta waves at 15 Hz; headphones
-needed), four bundled tracks
-(`assets/music`, shipped in the AppImage under `usr/share/inkpad/music`), plus any
-tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop).
+needed), plus any tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav;
+they loop). Tracks dropped in `assets/music` before packaging ship inside the AppImage,
+but none are tracked in the repository.
 Switching cross-fades over 1.5 s, and the music has its own volume. The app always
 starts silent; the volume is remembered, the track is not.
+
+Frosted glass (Appearance dialog) makes the page translucent, with the transparency
+adjustable. Where the compositor can blur behind windows (KDE Plasma, through KWin's
+blur and contrast protocols) the thickness slider also controls how heavily the
+desktop behind is frosted; on COSMIC and GNOME only the transparency applies.
 
 The text column is 66 characters wide at most and centred, with at least 1.75 em of
 padding on each side, both measured at the window's base size (18 px, stepping to 20
@@ -82,16 +88,17 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/prefs.rs` – user preferences and their on-disk format
 - `src/sound.rs` – mixer thread for key sounds and music, played through ALSA (loaded at runtime)
 - `src/music.rs` – generated soundscapes, binaural beats and looped playback of the user's own tracks
-- `assets/sounds/` – key samples: a CC0 set by unicaegames plus two cut from supplied recordings (see `LICENSE-sounds.md`)
+- `assets/sounds/` – synthesised key sounds (see `packaging/gen-sounds.py`)
 - `src/stats.rs` – word, character, sentence counts and reading time
 - `assets/fonts/` – iA Writer Duo, Mono and Quattro for the editor, Lato Light for the menu and dialogs (both SIL OFL)
 
+## Licensing of bundled assets
+
+Everything that ships with Inkpad is redistributable: the iA Writer fonts and Lato are
+under the SIL Open Font License (see `assets/fonts/`), the typing sounds are generated,
+and the soundscapes are synthesised in code. No recordings are included.
+
 ## Roadmap
 
-- Frosted glass window: the page shows a blurred version of what is behind it, with
-  the transparency and the blur thickness adjustable in Appearance. The window is
-  already transparent with its own rounded page, so the remaining work is the blur,
-  which on Wayland depends on compositor support (KDE and COSMIC have blur
-  protocols; GNOME does not) with an in-app fallback of a plain translucent page.
 - Library sidebar, preview, export (HTML/PDF/DOCX), spell check, syntax highlight
   by part of speech, style check, wikilinks, hashtags, content blocks.
