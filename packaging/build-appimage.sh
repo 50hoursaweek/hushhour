@@ -19,9 +19,9 @@ cp assets/icon-256.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/inkpad.png"
 cp assets/icon-512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/inkpad.png"
 cp assets/inkpad-icon-4a.svg "$APPDIR/usr/share/icons/hicolor/scalable/apps/inkpad.svg"
 # Optional bundled music (assets/music, not tracked), found by the app relative to the executable.
-if ls assets/music/*.ogg >/dev/null 2>&1; then
+if compgen -G "assets/music/*.*" >/dev/null; then
   mkdir -p "$APPDIR/usr/share/inkpad/music"
-  cp assets/music/*.ogg "$APPDIR/usr/share/inkpad/music/"
+  cp assets/music/*.* "$APPDIR/usr/share/inkpad/music/"
 fi
 cp assets/icon-256.png "$APPDIR/inkpad.png"
 cp assets/icon-256.png "$APPDIR/.DirIcon"

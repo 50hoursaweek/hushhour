@@ -964,6 +964,9 @@ impl Source for PianoDrift {
 // ---------------------------------------------------------------------------
 // A file from the music directory, looped
 
+/// -12 dB, applied to every file track.
+const FILE_GAIN: f32 = 0.25;
+
 pub struct FileSource {
     path: PathBuf,
     reader: Box<dyn FormatReader>,
@@ -1069,8 +1072,10 @@ impl Source for FileSource {
             }
             let next = self.pending.front().copied().unwrap_or(self.last);
             let t = self.position;
-            frame[0] = self.last[0] + (next[0] - self.last[0]) * t;
-            frame[1] = self.last[1] + (next[1] - self.last[1]) * t;
+            // Files are usually mastered loud (around -11 LUFS); pull them down 12 dB so
+            // they sit at the level of the generated soundscapes on the same volume setting.
+            frame[0] = (self.last[0] + (next[0] - self.last[0]) * t) * FILE_GAIN;
+            frame[1] = (self.last[1] + (next[1] - self.last[1]) * t) * FILE_GAIN;
             self.position += self.rate;
         }
     }
@@ -1132,7 +1137,7 @@ mod tests {
             source.fill(chunk);
         }
         let rms = (buf.iter().map(|s| s * s).sum::<f32>() / buf.len() as f32).sqrt();
-        assert!((rms - 0.5 / 2f32.sqrt()).abs() < 0.03, "rms {rms}");
+        assert!((rms - 0.5 / 2f32.sqrt() * FILE_GAIN).abs() < 0.01, "rms {rms}");
         // Both channels carry the mono signal.
         assert!(buf.chunks(2).all(|f| (f[0] - f[1]).abs() < 1e-6));
         std::fs::remove_dir_all(&dir).unwrap();
