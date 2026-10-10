@@ -88,5 +88,10 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Roadmap
 
-Library sidebar, preview, export (HTML/PDF/DOCX), spell check, syntax highlight
-by part of speech, style check, wikilinks, hashtags, content blocks.
+- Frosted glass window: the page shows a blurred version of what is behind it, with
+  the transparency and the blur thickness adjustable in Appearance. The window is
+  already transparent with its own rounded page, so the remaining work is the blur,
+  which on Wayland depends on compositor support (KDE and COSMIC have blur
+  protocols; GNOME does not) with an in-app fallback of a plain translucent page.
+- Library sidebar, preview, export (HTML/PDF/DOCX), spell check, syntax highlight
+  by part of speech, style check, wikilinks, hashtags, content blocks.
