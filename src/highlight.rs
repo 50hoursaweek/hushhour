@@ -23,6 +23,8 @@ pub enum FocusMode {
 }
 
 impl FocusMode {
+    pub const ALL: [Self; 3] = [Self::Off, Self::Paragraph, Self::Sentence];
+
     pub fn next(self) -> Self {
         match self {
             Self::Off => Self::Paragraph,
@@ -37,6 +39,12 @@ impl FocusMode {
             Self::Paragraph => "Paragraph",
             Self::Sentence => "Sentence",
         }
+    }
+}
+
+impl std::fmt::Display for FocusMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }
 

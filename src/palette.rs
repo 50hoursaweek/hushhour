@@ -12,6 +12,8 @@ pub enum ThemeKind {
 }
 
 impl ThemeKind {
+    pub const ALL: [Self; 3] = [Self::Light, Self::Sepia, Self::Dark];
+
     pub fn next(self) -> Self {
         match self {
             Self::Light => Self::Sepia,
@@ -65,6 +67,12 @@ impl ThemeKind {
             ),
         };
         Theme::custom(name, palette)
+    }
+}
+
+impl std::fmt::Display for ThemeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }
 

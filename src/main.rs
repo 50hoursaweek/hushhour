@@ -4,6 +4,8 @@ mod editor;
 mod highlight;
 mod history;
 mod palette;
+mod prefs;
+mod sound;
 mod stats;
 
 use std::path::PathBuf;
@@ -11,69 +13,40 @@ use std::sync::Arc;
 
 use iced::advanced::text::editor::{Cursor, Edit, Motion};
 use iced::advanced::text::{LineHeight, Wrapping};
-use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 use iced::keyboard::{self, Key, Modifiers};
 use iced::keyboard::key::Named;
-use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
+use iced::widget::{
+    button, column, container, mouse_area, opaque, pick_list, row, rule, slider, space, stack, text, toggler,
+};
 use iced::window;
 
 use editor::widget::{self as text_editor, TextEditor};
 use history::{History, position_at};
-use iced::{Background, Border, Color, Element, Font, Length, Padding, Subscription, Task, Theme};
+use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Subscription, Task, Theme, Vector};
 
 use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence_at};
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
+use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet};
 use stats::Stats;
 
 const APP_NAME: &str = "Inkpad";
-const MIN_SIZE: f32 = 12.0;
 const DRAG_STRIP: f32 = 28.0;
+// Text column layout. The measure is set in characters so it scales with the font;
+// effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
+/// Maximum line length in characters (`ch`, the width of the `0` glyph).
+const MEASURE_CH: f32 = 66.0;
+/// Width of one `ch` in em for the bundled iA Writer fonts.
+const CH_EM: f32 = 0.6;
+/// Minimum horizontal padding on each side of the text, in em of the body size.
+const SIDE_PADDING_EM: f32 = 1.75;
+/// Body size steps with window width: points added to the preferred size at or above each width.
+/// With the default 18 pt this gives 18 px below 900, 20 px from 900 and 22 px from 1400.
+const SIZE_STEPS: [(f32, f32); 2] = [(900.0, 2.0), (1400.0, 4.0)];
 const EDGE: f32 = 6.0;
-const MAX_SIZE: f32 = 40.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum FontKind {
-    #[default]
-    Duo,
-    Mono,
-    Quattro,
-}
-
-impl FontKind {
-    fn family(self) -> &'static str {
-        match self {
-            Self::Duo => "iA Writer Duo S",
-            Self::Mono => "iA Writer Mono S",
-            Self::Quattro => "iA Writer Quattro S",
-        }
-    }
-
-    fn next(self) -> Self {
-        match self {
-            Self::Duo => Self::Mono,
-            Self::Mono => Self::Quattro,
-            Self::Quattro => Self::Duo,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Duo => "Duo",
-            Self::Mono => "Mono",
-            Self::Quattro => "Quattro",
-        }
-    }
-
-    fn font(self) -> Font {
-        Font {
-            family: Family::Name(self.family()),
-            weight: Weight::Normal,
-            stretch: Stretch::Normal,
-            style: FontStyle::Normal,
-        }
-    }
-}
+/// Corner radius of the undecorated window, matching typical desktop windows.
+const CORNER_RADIUS: f32 = 12.0;
+const WINDOW_SIZE: (f32, f32) = (1100.0, 780.0);
 
 struct Inkpad {
     content: text_editor::Content,
@@ -82,12 +55,12 @@ struct Inkpad {
     history: History,
     path: Option<PathBuf>,
     dirty: bool,
-    focus: FocusMode,
-    typewriter: bool,
-    theme: ThemeKind,
-    font: FontKind,
-    size: f32,
+    prefs: Preferences,
+    sound: sound::Sound,
+    menu_open: bool,
     fullscreen: bool,
+    maximized: bool,
+    window_width: f32,
     top_strip_hovered: bool,
     highlight: HlSettings,
     stats: Stats,
@@ -113,6 +86,7 @@ enum Message {
     Redo,
     KeyPressed(Key, Modifiers),
     SelfTest,
+    SoundTest,
     CursorToEnd,
     DragWindow,
     ResizeWindow(window::Direction),
@@ -120,7 +94,20 @@ enum Message {
     ToggleMaximize,
     Minimize,
     ToggleFullscreen,
+    WindowResized(iced::Size),
+    Maximized(bool),
     ToggleDecorations,
+    ToggleMenu,
+    CloseMenu,
+    SetTheme(ThemeKind),
+    SetFont(FontKind),
+    SetSize(f32),
+    SetLineHeight(f32),
+    SetFocus(FocusMode),
+    SetTypewriter(bool),
+    SetTypingSound(bool),
+    SetSoundSet(SoundSet),
+    SetSoundVolume(f32),
     Quit,
 }
 
@@ -132,12 +119,12 @@ impl Inkpad {
             history: History::default(),
             path: None,
             dirty: false,
-            focus: FocusMode::Off,
-            typewriter: false,
-            theme: ThemeKind::Light,
-            font: FontKind::Duo,
-            size: 18.0,
+            prefs: Preferences::load(),
+            sound: sound::Sound::start(),
+            menu_open: false,
             fullscreen: false,
+            maximized: false,
+            window_width: WINDOW_SIZE.0,
             top_strip_hovered: false,
             highlight: HlSettings::default(),
             stats: Stats::default(),
@@ -147,7 +134,9 @@ impl Inkpad {
         let mut tasks = vec![iced::widget::operation::focus_next()];
         for arg in std::env::args().skip(1) {
             match arg.as_str() {
-                "--typewriter" => app.typewriter = true,
+                "--typewriter" => app.prefs.typewriter = true,
+                "--menu" => app.menu_open = true,
+                "--soundtest" => tasks.push(Task::done(Message::SoundTest)),
                 "--end" => tasks.push(Task::done(Message::CursorToEnd)),
                 "--selftest" => tasks.push(Task::done(Message::SelfTest)),
                 path => tasks.push(Task::perform(read_file(PathBuf::from(path)), Message::Opened)),
@@ -171,8 +160,19 @@ impl Inkpad {
         match message {
             Message::Edit(action) => {
                 let is_edit = action.is_edit();
+                let key = match &action {
+                    text_editor::Action::Edit(Edit::Enter) => Some(sound::Key::Enter),
+                    text_editor::Action::Edit(Edit::Backspace | Edit::Delete) => Some(sound::Key::Backspace),
+                    text_editor::Action::Edit(_) => Some(sound::Key::Character),
+                    _ => None,
+                };
                 let before = self.content.cursor().position;
                 self.content.perform(action);
+                if let Some(key) = key
+                    && self.prefs.typing_sound
+                {
+                    self.sound.play(key, self.prefs.sound_set, self.prefs.sound_volume);
+                }
                 if is_edit {
                     let new_text = self.content.text();
                     let after = self.content.cursor().position;
@@ -225,30 +225,59 @@ impl Inkpad {
                 self.notice = Some(format!("Save failed: {e}"));
                 Task::none()
             }
-            Message::CycleFocus => {
-                self.focus = self.focus.next();
+            Message::CycleFocus => self.update(Message::SetFocus(self.prefs.focus.next())),
+            Message::ToggleTypewriter => self.update(Message::SetTypewriter(!self.prefs.typewriter)),
+            Message::CycleTheme => self.update(Message::SetTheme(self.prefs.theme.next())),
+            Message::CycleFont => self.update(Message::SetFont(self.prefs.font.next())),
+            Message::ZoomIn => self.update(Message::SetSize(self.prefs.size + 1.0)),
+            Message::ZoomOut => self.update(Message::SetSize(self.prefs.size - 1.0)),
+            Message::SetFocus(focus) => {
+                self.prefs.focus = focus;
                 self.refresh_focus();
-                Task::none()
+                self.save_prefs()
             }
-            Message::ToggleTypewriter => {
-                self.typewriter = !self.typewriter;
-                Task::none()
+            Message::SetTypewriter(on) => {
+                self.prefs.typewriter = on;
+                self.save_prefs()
             }
-            Message::CycleTheme => {
-                self.theme = self.theme.next();
-                Task::none()
+            Message::SetTypingSound(on) => {
+                self.prefs.typing_sound = on;
+                self.save_prefs()
             }
-            Message::CycleFont => {
-                self.font = self.font.next();
+            Message::SetSoundSet(set) => {
+                self.prefs.sound_set = set;
+                self.sound.play(sound::Key::Character, set, self.prefs.sound_volume);
+                self.save_prefs()
+            }
+            Message::SetSoundVolume(v) => {
+                self.prefs.sound_volume = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
+                // Preview the new level right away.
+                self.sound.play(sound::Key::Character, self.prefs.sound_set, self.prefs.sound_volume);
+                self.save_prefs()
+            }
+            Message::SetTheme(theme) => {
+                self.prefs.theme = theme;
+                self.save_prefs()
+            }
+            Message::SetFont(font) => {
+                self.prefs.font = font;
                 self.refresh_focus();
+                self.save_prefs()
+            }
+            Message::SetSize(size) => {
+                self.prefs.size = size.round().clamp(MIN_SIZE, MAX_SIZE);
+                self.save_prefs()
+            }
+            Message::SetLineHeight(lh) => {
+                self.prefs.line_height = ((lh * 20.0).round() / 20.0).clamp(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT);
+                self.save_prefs()
+            }
+            Message::ToggleMenu => {
+                self.menu_open = !self.menu_open;
                 Task::none()
             }
-            Message::ZoomIn => {
-                self.size = (self.size + 1.0).min(MAX_SIZE);
-                Task::none()
-            }
-            Message::ZoomOut => {
-                self.size = (self.size - 1.0).max(MIN_SIZE);
+            Message::CloseMenu => {
+                self.menu_open = false;
                 Task::none()
             }
             Message::DragWindow => window::latest().and_then(window::drag),
@@ -262,6 +291,16 @@ impl Inkpad {
             Message::ToggleMaximize => window::latest().and_then(window::toggle_maximize),
             Message::Minimize => window::latest().and_then(|id| window::minimize(id, true)),
             Message::ToggleDecorations => window::latest().and_then(window::toggle_decorations),
+            // The compositor does not announce maximisation, so ask after every resize;
+            // the corners are square while maximised or fullscreen.
+            Message::WindowResized(size) => {
+                self.window_width = size.width;
+                window::latest().and_then(window::is_maximized).map(Message::Maximized)
+            }
+            Message::Maximized(maximized) => {
+                self.maximized = maximized;
+                Task::none()
+            }
             Message::ToggleFullscreen => {
                 self.fullscreen = !self.fullscreen;
                 let mode = if self.fullscreen { window::Mode::Fullscreen } else { window::Mode::Windowed };
@@ -273,6 +312,16 @@ impl Inkpad {
                 self.refresh_focus();
                 Task::none()
             }
+            // Play a few keys at full volume and exit; used to check audio output.
+            Message::SoundTest => {
+                for key in [sound::Key::Character, sound::Key::Character, sound::Key::Enter, sound::Key::Backspace] {
+                    self.sound.play(key, self.prefs.sound_set, 1.0);
+                    std::thread::sleep(std::time::Duration::from_millis(180));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(700));
+                println!("SOUNDTEST DONE");
+                iced::exit()
+            }
             Message::SelfTest => match self.selftest() {
                 Ok(()) => {
                     println!("SELFTEST PASS");
@@ -283,11 +332,24 @@ impl Inkpad {
                     iced::exit()
                 }
             },
-            Message::KeyPressed(key, modifiers) => match shortcut(&key, modifiers) {
-                Some(m) => self.update(m),
-                None => Task::none(),
-            },
+            Message::KeyPressed(key, modifiers) => {
+                if self.menu_open && matches!(key, Key::Named(Named::Escape)) {
+                    return self.update(Message::CloseMenu);
+                }
+                match shortcut(&key, modifiers) {
+                    Some(m) => self.update(m),
+                    None => Task::none(),
+                }
+            }
         }
+    }
+
+    /// Persist the preferences; a failure is reported in the status bar rather than fatal.
+    fn save_prefs(&mut self) -> Task<Message> {
+        if let Err(e) = self.prefs.save() {
+            self.notice = Some(format!("Could not save preferences: {e}"));
+        }
+        Task::none()
     }
 
     /// Replace the document, resetting history and statistics.
@@ -379,6 +441,18 @@ impl Inkpad {
         Ok(())
     }
 
+    /// The preferred size plus the step for the current window width, so the
+    /// column fills more of a large screen.
+    fn body_size(&self) -> f32 {
+        let step = SIZE_STEPS
+            .iter()
+            .filter(|(min_width, _)| self.window_width >= *min_width)
+            .map(|(_, step)| *step)
+            .last()
+            .unwrap_or(0.0);
+        (self.prefs.size + step).min(MAX_SIZE)
+    }
+
     /// Recompute the paragraph and sentence under the cursor for focus mode.
     fn refresh_focus(&mut self) {
         let cursor = self.content.cursor();
@@ -402,38 +476,184 @@ impl Inkpad {
             .unwrap_or(0..0);
 
         self.highlight = HlSettings {
-            family: self.font.family(),
-            focus: self.focus,
+            family: self.prefs.font.family(),
+            focus: self.prefs.focus,
             paragraph: start..end,
             cursor_line: line,
             sentence,
         };
     }
 
+    /// The menu: file actions and preferences in a card over the editor.
+    /// Clicking outside the card or pressing Escape closes it.
+    fn menu(&self) -> Element<'_, Message> {
+        let muted = |s: String| {
+            text(s).size(12.0).style(|theme: &Theme| {
+                let p = theme.palette();
+                text::Style { color: Some(mix(p.text, p.background, 0.45)) }
+            })
+        };
+        let heading = |s: &'static str| {
+            text(s).size(11.0).style(|theme: &Theme| {
+                let p = theme.palette();
+                text::Style { color: Some(mix(p.text, p.background, 0.55)) }
+            })
+        };
+        let action = |label: &'static str, hint: &'static str, msg: Message| {
+            button(
+                row![text(label).size(13.0), space().width(Length::Fill), muted(hint.to_owned())]
+                    .align_y(iced::Alignment::Center),
+            )
+            .width(Length::Fill)
+            .padding(Padding::new(5.0).left(8.0).right(8.0))
+            .on_press(msg)
+            .style(|theme: &Theme, status| {
+                let p = theme.palette();
+                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: hovered.then(|| Background::Color(mix(p.text, p.background, 0.9))),
+                    text_color: p.text,
+                    border: Border::default().rounded(4.0),
+                    ..button::Style::default()
+                }
+            })
+        };
+        let divider = || rule::horizontal(1).style(|theme: &Theme| {
+            let p = theme.palette();
+            rule::Style {
+                color: mix(p.text, p.background, 0.85),
+                radius: 0.0.into(),
+                fill_mode: rule::FillMode::Full,
+                snap: false,
+            }
+        });
+
+        let size = self.prefs.size;
+        let line_height = self.prefs.line_height;
+        let volume = self.prefs.sound_volume;
+        let card = column![
+            heading("FILE"),
+            action("New", "Ctrl+N", Message::New),
+            action("Open…", "Ctrl+O", Message::Open),
+            action("Save", "Ctrl+S", Message::Save),
+            action("Save As…", "Ctrl+Shift+S", Message::SaveAs),
+            divider(),
+            heading("APPEARANCE"),
+            setting("Theme", pick(&ThemeKind::ALL, self.prefs.theme, Message::SetTheme)),
+            setting("Font", pick(&FontKind::ALL, self.prefs.font, Message::SetFont)),
+            setting(
+                "Size",
+                row![
+                    slider(MIN_SIZE..=MAX_SIZE, size, Message::SetSize).step(1.0_f32),
+                    muted(format!("{size:.0} pt")).width(44.0),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            ),
+            setting(
+                "Line height",
+                row![
+                    slider(MIN_LINE_HEIGHT..=MAX_LINE_HEIGHT, line_height, Message::SetLineHeight).step(0.05_f32),
+                    muted(format!("{line_height:.2}")).width(44.0),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            ),
+            divider(),
+            heading("WRITING"),
+            setting("Focus", pick(&FocusMode::ALL, self.prefs.focus, Message::SetFocus)),
+            setting(
+                "Typewriter",
+                toggler(self.prefs.typewriter).on_toggle(Message::SetTypewriter).size(18.0),
+            ),
+            divider(),
+            heading("SOUND"),
+            setting(
+                "Typing sound",
+                toggler(self.prefs.typing_sound).on_toggle(Message::SetTypingSound).size(18.0),
+            ),
+            setting("Sound", pick(&SoundSet::ALL, self.prefs.sound_set, Message::SetSoundSet)),
+            setting(
+                "Volume",
+                row![
+                    slider(0.0..=1.0, volume, Message::SetSoundVolume).step(0.05_f32),
+                    muted(format!("{:.0}%", volume * 100.0)).width(44.0),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            ),
+            divider(),
+            heading("WINDOW"),
+            action("Fullscreen", "F11", Message::ToggleFullscreen),
+            action("Toggle decorations", "Ctrl+Shift+D", Message::ToggleDecorations),
+            action("Quit", "Ctrl+Q", Message::Quit),
+        ]
+        .spacing(6)
+        .width(340.0);
+
+        let card = container(card)
+            .padding(16)
+            .style(|theme: &Theme| {
+                let p = theme.palette();
+                container::Style {
+                    background: Some(Background::Color(p.background)),
+                    border: Border::default().rounded(10.0).width(1.0).color(mix(p.text, p.background, 0.8)),
+                    shadow: Shadow {
+                        color: Color { a: 0.25, ..Color::BLACK },
+                        offset: Vector::new(0.0, 6.0),
+                        blur_radius: 24.0,
+                    },
+                    ..container::Style::default()
+                }
+            });
+
+        // The card hangs below the ☰ button; the backdrop swallows clicks so they
+        // close the menu instead of reaching the editor.
+        let anchored = container(opaque(card))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(Padding::new(0.0).top(DRAG_STRIP + 2.0).left(8.0));
+        opaque(mouse_area(anchored).on_press(Message::CloseMenu))
+    }
+
     fn subscription(&self) -> Subscription<Message> {
-        keyboard::listen().filter_map(|event| match event {
+        let keys = keyboard::listen().filter_map(|event| match event {
             keyboard::Event::KeyPressed { key, modifiers, .. } => Some(Message::KeyPressed(key, modifiers)),
             _ => None,
-        })
+        });
+        let resizes = window::events().filter_map(|(_, event)| match event {
+            window::Event::Resized(size) => Some(Message::WindowResized(size)),
+            _ => None,
+        });
+        Subscription::batch([keys, resizes])
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let font = self.font.font();
+        let font = self.prefs.font.font();
+        let menu_open = self.menu_open;
+        let size = self.body_size();
+        let side_padding = size * SIDE_PADDING_EM;
+        let measure = size * CH_EM * MEASURE_CH;
 
         let editor = TextEditor::new(&self.content)
             .placeholder("Start writing…")
-            .typewriter(self.typewriter)
+            .typewriter(self.prefs.typewriter)
             .font(font)
-            .size(self.size)
-            .line_height(LineHeight::Relative(1.65))
-            .padding(Padding::new(64.0).top(64.0 - DRAG_STRIP).left(32.0).right(32.0))
+            .size(size)
+            .line_height(LineHeight::Relative(self.prefs.line_height))
+            .padding(Padding::new(64.0).top(64.0 - DRAG_STRIP).left(side_padding).right(side_padding))
             .wrapping(Wrapping::Word)
             .height(Length::Fill)
             .highlight_with::<MarkdownHighlighter>(self.highlight.clone(), highlight::to_format)
-            .key_binding(|press| {
+            .key_binding(move |press| {
                 use text_editor::Binding;
                 if let Some(m) = shortcut(&press.key, press.modifiers) {
                     return Some(Binding::Custom(m));
+                }
+                if menu_open {
+                    // Keys go to the menu, not the document, while it is open.
+                    return matches!(press.key, Key::Named(Named::Escape))
+                        .then_some(Binding::Custom(Message::CloseMenu));
                 }
                 Binding::from_key_press(press)
             })
@@ -449,10 +669,13 @@ impl Inkpad {
                 }
             });
 
-        let page = container(editor)
-            .max_width(760.0 + 64.0)
-            .center_x(Length::Fill)
+        // The column is capped at the measure; the outer container centres it, so the
+        // margins stay equal and grow together as the window widens.
+        let column = container(editor)
+            .width(Length::Fill)
+            .max_width(measure + 2.0 * side_padding)
             .height(Length::Fill);
+        let page = container(column).center_x(Length::Fill).height(Length::Fill);
 
         // Without window decorations this strip is the handle for moving the
         // window; double-click maximises, like a title bar would.
@@ -490,7 +713,9 @@ impl Inkpad {
             .on_press(Message::DragWindow)
             .on_double_click(Message::ToggleMaximize)
             .interaction(iced::mouse::Interaction::Grab);
-        let drag_strip = mouse_area(row![drag_handle, controls].height(DRAG_STRIP))
+        // The menu button is always visible, muted until hovered, so the menu can be found.
+        let menu_button = container(window_button("☰", Message::ToggleMenu)).padding(Padding::new(0.0).left(8.0));
+        let drag_strip = mouse_area(row![menu_button, drag_handle, controls].height(DRAG_STRIP))
             .on_enter(Message::TopStripHovered(true))
             .on_exit(Message::TopStripHovered(false));
 
@@ -531,14 +756,18 @@ impl Inkpad {
             space().width(Length::Fill),
             muted(self.notice.clone().unwrap_or_default()),
             space().width(16),
-            item(format!("Focus: {}", self.focus.label()), self.focus != FocusMode::Off, Message::CycleFocus),
             item(
-                format!("Typewriter: {}", if self.typewriter { "On" } else { "Off" }),
-                self.typewriter,
+                format!("Focus: {}", self.prefs.focus.label()),
+                self.prefs.focus != FocusMode::Off,
+                Message::CycleFocus,
+            ),
+            item(
+                format!("Typewriter: {}", if self.prefs.typewriter { "On" } else { "Off" }),
+                self.prefs.typewriter,
                 Message::ToggleTypewriter,
             ),
-            item(self.font.label().to_owned(), false, Message::CycleFont),
-            item(self.theme.label().to_owned(), false, Message::CycleTheme),
+            item(self.prefs.font.label().to_owned(), false, Message::CycleFont),
+            item(self.prefs.theme.label().to_owned(), false, Message::CycleTheme),
         ]
         .spacing(4)
         .align_y(iced::Alignment::Center)
@@ -578,17 +807,40 @@ impl Inkpad {
             .width(fill)
             .height(fill)
         };
-        let layout = stack![layout, handles].width(Length::Fill).height(Length::Fill);
+        let mut layout = stack![layout, handles].width(Length::Fill).height(Length::Fill);
+        if self.menu_open {
+            layout = layout.push(self.menu());
+        }
 
+        // The window itself is transparent; this container paints the rounded page.
+        let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
         container(layout)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(|theme: &Theme| container::Style {
+            .style(move |theme: &Theme| container::Style {
                 background: Some(Background::Color(theme.palette().background)),
+                border: Border::default().rounded(radius),
                 ..container::Style::default()
             })
             .into()
     }
+}
+
+/// A labelled preference row in the menu.
+fn setting<'a>(label: &'static str, control: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    row![text(label).size(13.0).width(110.0), control.into()]
+        .align_y(iced::Alignment::Center)
+        .spacing(8)
+        .padding(Padding::new(0.0).left(8.0).right(8.0))
+        .into()
+}
+
+/// A drop-down for one of the enum preferences, sized to match the menu text.
+fn pick<'a, T>(options: &'a [T], selected: T, on_select: impl Fn(T) -> Message + 'a) -> Element<'a, Message>
+where
+    T: ToString + PartialEq + Clone + 'a,
+{
+    pick_list(options, Some(selected), on_select).text_size(13.0).width(Length::Fill).into()
 }
 
 /// Keyboard shortcuts, shared by the editor key binding and the global listener.
@@ -601,6 +853,7 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
     }
     let shift = modifiers.shift();
     match key.as_ref() {
+        Key::Character(",") => Some(Message::ToggleMenu),
         Key::Character("s") if shift => Some(Message::SaveAs),
         Key::Character("s") => Some(Message::Save),
         Key::Character("S") => Some(Message::SaveAs),
@@ -656,7 +909,11 @@ async fn write_file(path: PathBuf, contents: String) -> Result<PathBuf, String> 
 pub fn main() -> iced::Result {
     iced::application(Inkpad::new, Inkpad::update, Inkpad::view)
         .title(Inkpad::title)
-        .theme(|app: &Inkpad| app.theme.theme())
+        .theme(|app: &Inkpad| app.prefs.theme.theme())
+        .style(|_app: &Inkpad, theme: &Theme| iced::theme::Style {
+            background_color: Color::TRANSPARENT,
+            text_color: theme.palette().text,
+        })
         .subscription(Inkpad::subscription)
         .default_font(FontKind::Duo.font())
         .font(include_bytes!("../assets/fonts/iAWriterDuoS-Regular.ttf").as_slice())
@@ -671,8 +928,19 @@ pub fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Bold.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Italic.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-BoldItalic.ttf").as_slice())
-        .window_size((1100.0, 780.0))
+        // Set first: the builder methods below extend these settings. The app id must
+        // match the desktop file name so Wayland compositors can find the launcher icon.
+        .window(window::Settings {
+            icon: window::icon::from_file_data(include_bytes!("../assets/icon-256.png"), None).ok(),
+            platform_specific: window::settings::PlatformSpecific {
+                application_id: "inkpad".to_owned(),
+                ..window::settings::PlatformSpecific::default()
+            },
+            ..window::Settings::default()
+        })
+        .window_size(WINDOW_SIZE)
         .decorations(false)
+        .transparent(true)
         .antialiasing(true)
         .run()
 }

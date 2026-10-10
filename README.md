@@ -11,10 +11,14 @@ Requires a Rust toolchain (`rustup`), a C linker, and a Wayland or X11 session w
 cargo run -- examples/sample.md
 ```
 
+To build the AppImage, put `appimagetool` on `PATH` (or point `APPIMAGETOOL` at it)
+and run `packaging/build-appimage.sh`; the result lands in `dist/`.
+
 ## Shortcuts
 
 | Keys | Action |
 |---|---|
+| Ctrl+, | Open the menu (file actions and preferences); Esc or a click outside closes it |
 | Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+N | Open, save, save as, new |
 | Ctrl+D | Cycle focus mode: off, paragraph, sentence |
 | Ctrl+T | Toggle typewriter mode (caret line stays vertically centred) |
@@ -29,8 +33,22 @@ cargo run -- examples/sample.md
 The window has no title bar. Drag the top strip or the status bar to move it,
 double-click the top strip to maximise, and use your compositor's resize
 gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
+The ☰ button in the top-left corner opens the menu.
 
-Debug flags: `--typewriter` starts with typewriter mode on, `--end` moves the caret
+Preferences (theme, font, size, line height, focus mode, typewriter mode) are
+saved to `~/.config/inkpad/preferences` whenever they change.
+
+A key sound plays on every edit; the menu has a switch, a choice of four sound sets
+(soft keys, keyboard, typewriter, mechanical) and a volume slider for it.
+Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
+without it the editor is simply silent.
+
+The text column is 66 characters wide at most and centred, with at least 1.75 em of
+padding on each side. The body size steps up with the window width (18, 20 and 22 px
+with the default size preference, at 900 and 1400 px) so the column fills more of a
+large screen; the size preference and Ctrl+= / Ctrl+- shift all three steps.
+
+Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Layout
@@ -41,6 +59,9 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/history.rs` – undo/redo as coalesced text deltas
 - `src/highlight.rs` – line-based Markdown highlighter plus focus-mode dimming
 - `src/palette.rs` – light, sepia and dark colour schemes
+- `src/prefs.rs` – user preferences and their on-disk format
+- `src/sound.rs` – gentle key sounds, mixed in a thread and played through ALSA (loaded at runtime)
+- `assets/sounds/` – key samples: a CC0 set by unicaegames plus two cut from supplied recordings (see `LICENSE-sounds.md`)
 - `src/stats.rs` – word, character, sentence counts and reading time
 - `assets/fonts/` – iA Writer Duo, Mono and Quattro (SIL OFL, see `LICENSE-iA-Fonts.md`)
 
