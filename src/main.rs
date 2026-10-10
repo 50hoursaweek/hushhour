@@ -38,6 +38,7 @@ const APP_NAME: &str = "Inkpad";
 /// Incremented by build.rs on every build; see the About section of the menu.
 const BUILD: &str = env!("INKPAD_BUILD");
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
+const REPOSITORY: &str = "https://github.com/50hoursaweek/inkpad";
 /// The menu and dialogs use Lato Light; the editor keeps the iA Writer fonts.
 const UI_FONT: Font = Font {
     family: iced::font::Family::Name("Lato"),
@@ -147,6 +148,7 @@ enum Message {
     SetMusic(Music),
     SetMusicVolume(f32),
     SetShowWelcome(bool),
+    OpenRepository,
     FrostAttached(Option<frost::Frost>),
     SetFrost(bool),
     SetFrostTransparency(f32),
@@ -347,6 +349,11 @@ impl Inkpad {
                 self.prefs.music = music.clone();
                 self.sound.set_music(music);
                 self.save_prefs()
+            }
+            Message::OpenRepository => {
+                // Hand the URL to the desktop's default browser.
+                let _ = std::process::Command::new("xdg-open").arg(REPOSITORY).spawn();
+                Task::none()
             }
             Message::SetShowWelcome(show) => {
                 self.prefs.show_welcome = show;
@@ -794,6 +801,7 @@ impl Inkpad {
                     text(APP_NAME).size(20.0).font(UI_FONT),
                     muted(format!("Version {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
                     muted("© 2026 Grunt".to_owned()),
+                    link_button(REPOSITORY.trim_start_matches("https://"), Message::OpenRepository),
                 ]
                 .spacing(6)
                 .align_x(iced::Alignment::Center)
@@ -1117,6 +1125,24 @@ fn card_style(theme: &Theme) -> container::Style {
 /// A slider with its current value shown on the right.
 fn slider_row<'a>(control: iced::widget::Slider<'a, f32, Message>, label: String) -> Element<'a, Message> {
     row![control, muted(label).width(44.0)].spacing(8).align_y(iced::Alignment::Center).into()
+}
+
+/// Text that behaves like a hyperlink.
+fn link_button<'a>(label: &'static str, msg: Message) -> Element<'a, Message> {
+    button(text(label).size(13.0).font(UI_FONT))
+        .padding(Padding::new(2.0).left(4.0).right(4.0))
+        .on_press(msg)
+        .style(|theme: &Theme, status| {
+            let p = theme.palette();
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: None,
+                text_color: if hovered { p.primary } else { mix(p.primary, p.text, 0.3) },
+                border: Border::default(),
+                ..button::Style::default()
+            }
+        })
+        .into()
 }
 
 /// A raised button for dialogs.
