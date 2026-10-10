@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate the bundled music tracks with Google Lyria 3 through OpenRouter.
 
-Reads OPENROUTER_API_KEY from the environment or from a `.env` file in the
-project root (git-ignored). Writes assets/music/<name>.mp3, which the AppImage
+Reads OPENROUTER_API_KEY from the environment, from a `.env` file in the
+folder above the project (recommended: it cannot be committed), or from a
+git-ignored `.env` in the project root. Writes assets/music/<name>.mp3, which the AppImage
 packaging picks up. Each full-length song costs a few cents on OpenRouter.
 
     python3 packaging/gen-tracks.py            # generate all three tracks
@@ -44,13 +45,15 @@ def api_key():
     key = os.environ.get("OPENROUTER_API_KEY")
     if key:
         return key
-    env = os.path.join(ROOT, ".env")
-    if os.path.exists(env):
-        for line in open(env):
-            line = line.strip()
-            if line.startswith("OPENROUTER_API_KEY="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    sys.exit("No OPENROUTER_API_KEY in the environment or in .env")
+    # The parent folder (outside the repository) is checked first: a key kept
+    # there can never be committed by accident.
+    for env in (os.path.join(os.path.dirname(ROOT), ".env"), os.path.join(ROOT, ".env")):
+        if os.path.exists(env):
+            for line in open(env):
+                line = line.strip()
+                if line.startswith("OPENROUTER_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    sys.exit("No OPENROUTER_API_KEY in the environment, ../.env or .env")
 
 
 def generate(name, title, prompt, key):
