@@ -164,8 +164,8 @@ impl Inkpad {
         };
         let mut app = app;
         app.refresh_music_options();
+        // Music is never started automatically; only its volume is remembered.
         app.sound.set_music_volume(app.prefs.music_volume);
-        app.sound.set_music(app.prefs.music.clone());
         let mut tasks = vec![iced::widget::operation::focus_next()];
         for arg in std::env::args().skip(1) {
             match arg.as_str() {

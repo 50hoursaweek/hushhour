@@ -50,7 +50,8 @@ Menorca with crickets, a train ride, curtains swaying in a breeze) and two binau
 beats (10 Hz calm, 15 Hz focus; headphones needed), four bundled tracks
 (`assets/music`, shipped in the AppImage under `usr/share/inkpad/music`), plus any
 tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop).
-Switching cross-fades over 1.5 s, and the music has its own volume.
+Switching cross-fades over 1.5 s, and the music has its own volume. The app always
+starts silent; the volume is remembered, the track is not.
 
 The text column is 66 characters wide at most and centred, with at least 1.75 em of
 padding on each side, both measured at the window's base size (18 px, stepping to 20
