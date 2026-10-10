@@ -33,7 +33,8 @@ and run `packaging/build-appimage.sh`; the result lands in `dist/`.
 The window has no title bar. Drag the top strip or the status bar to move it,
 double-click the top strip to maximise, and use your compositor's resize
 gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
-On the first launch a welcome dialog explains the menu and the sound settings.
+A welcome dialog explains the menu and the sound settings at launch until its
+"Don't show this again" box is ticked.
 The ☰ button in the top-left corner opens the menu: file actions, then Appearance and
 Sound and music, which open dialogs, then the Writing and Window sections, then About.
 
@@ -80,7 +81,7 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/music.rs` – generated soundscapes, binaural beats and looped playback of the user's own tracks
 - `assets/sounds/` – key samples: a CC0 set by unicaegames plus two cut from supplied recordings (see `LICENSE-sounds.md`)
 - `src/stats.rs` – word, character, sentence counts and reading time
-- `assets/fonts/` – iA Writer Duo, Mono and Quattro (SIL OFL, see `LICENSE-iA-Fonts.md`)
+- `assets/fonts/` – iA Writer Duo, Mono and Quattro for the editor, Lato Light for the menu and dialogs (both SIL OFL)
 
 ## Roadmap
 

@@ -23,7 +23,7 @@ use iced::window;
 
 use editor::widget::{self as text_editor, TextEditor};
 use history::{History, position_at};
-use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Subscription, Task, Theme, Vector};
+use iced::{Background, Border, Color, Element, Font, Length, Padding, Shadow, Subscription, Task, Theme, Vector};
 
 use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence_at};
 use iced::advanced::text::editor::Position;
@@ -36,6 +36,13 @@ const APP_NAME: &str = "Inkpad";
 /// Incremented by build.rs on every build; see the About section of the menu.
 const BUILD: &str = env!("INKPAD_BUILD");
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
+/// The menu and dialogs use Lato Light; the editor keeps the iA Writer fonts.
+const UI_FONT: Font = Font {
+    family: iced::font::Family::Name("Lato"),
+    weight: iced::font::Weight::Light,
+    stretch: iced::font::Stretch::Normal,
+    style: iced::font::Style::Normal,
+};
 const DRAG_STRIP: f32 = 28.0;
 // Text column layout. The measure is set in characters of the window's base size
 // (not the zoomed size), so zooming reflows text inside a column whose margins
@@ -134,6 +141,7 @@ enum Message {
     SetSoundVolume(f32),
     SetMusic(Music),
     SetMusicVolume(f32),
+    SetShowWelcome(bool),
     Quit,
 }
 
@@ -164,10 +172,8 @@ impl Inkpad {
             notice: None,
         };
         let mut app = app;
-        if Preferences::is_first_run() {
-            // Greet once, and save so the next launch starts straight in the editor.
+        if app.prefs.show_welcome {
             app.dialog = Some(Dialog::Welcome);
-            let _ = app.prefs.save();
         }
         app.refresh_music_options();
         // Music is never started automatically; only its volume is remembered.
@@ -318,6 +324,7 @@ impl Inkpad {
                 self.save_prefs()
             }
             Message::ToggleMenu => {
+                self.dialog = None;
                 self.menu_open = !self.menu_open;
                 if self.menu_open {
                     self.refresh_music_options();
@@ -327,6 +334,10 @@ impl Inkpad {
             Message::SetMusic(music) => {
                 self.prefs.music = music.clone();
                 self.sound.set_music(music);
+                self.save_prefs()
+            }
+            Message::SetShowWelcome(show) => {
+                self.prefs.show_welcome = show;
                 self.save_prefs()
             }
             Message::SetMusicVolume(v) => {
@@ -619,7 +630,7 @@ impl Inkpad {
         let volume = self.prefs.sound_volume;
         let music_volume = self.prefs.music_volume;
 
-        let paragraph = |s: &'static str| text(s).size(13.0).width(Length::Fill);
+        let paragraph = |s: &'static str| text(s).size(14.0).font(UI_FONT).width(Length::Fill);
         let (title, body): (&str, Element<'_, Message>) = match dialog {
             Dialog::Welcome => (
                 "Welcome to Inkpad",
@@ -629,6 +640,12 @@ impl Inkpad {
                     paragraph("Sound and music is where you pick a typing sound and a background soundscape: rain, a night of crickets, a train, a breeze, binaural beats, bundled tracks, or your own music."),
                     muted(format!("Your own tracks (mp3, ogg, flac, wav) go in\n{}", self.music_dirs.user.display())),
                     paragraph("Handy keys: Ctrl+D cycles focus mode, Ctrl+T toggles typewriter mode, Ctrl+S saves, F11 goes fullscreen."),
+                    iced::widget::checkbox(!self.prefs.show_welcome)
+                        .label("Don't show this again")
+                        .on_toggle(|checked| Message::SetShowWelcome(!checked))
+                        .size(16.0)
+                        .text_size(13.0)
+                        .font(UI_FONT),
                 ]
                 .spacing(10)
                 .into(),
@@ -692,7 +709,7 @@ impl Inkpad {
                 "",
                 column![
                     iced::widget::image(iced::widget::image::Handle::from_bytes(APP_ICON)).width(96.0).height(96.0),
-                    text(APP_NAME).size(20.0),
+                    text(APP_NAME).size(20.0).font(UI_FONT),
                     muted(format!("Version {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
                     muted("© 2026 Grunt".to_owned()),
                 ]
@@ -711,7 +728,7 @@ impl Inkpad {
         };
         let mut card = column![].spacing(14).width(width);
         if !title.is_empty() {
-            card = card.push(text(title).size(16.0));
+            card = card.push(text(title).size(17.0).font(UI_FONT));
         }
         let buttons: Element<'_, Message> = if dialog == Dialog::Welcome {
             row![
@@ -947,7 +964,7 @@ impl Inkpad {
 
 /// Dimmed secondary text.
 fn muted<'a>(s: String) -> iced::widget::Text<'a> {
-    text(s).size(12.0).style(|theme: &Theme| {
+    text(s).size(12.5).font(UI_FONT).style(|theme: &Theme| {
         let p = theme.palette();
         text::Style { color: Some(mix(p.text, p.background, 0.45)) }
     })
@@ -955,7 +972,7 @@ fn muted<'a>(s: String) -> iced::widget::Text<'a> {
 
 /// Small caps-style section heading.
 fn heading<'a>(s: &'static str) -> iced::widget::Text<'a> {
-    text(s).size(11.0).style(|theme: &Theme| {
+    text(s).size(11.5).font(UI_FONT).style(|theme: &Theme| {
         let p = theme.palette();
         text::Style { color: Some(mix(p.text, p.background, 0.55)) }
     })
@@ -964,7 +981,7 @@ fn heading<'a>(s: &'static str) -> iced::widget::Text<'a> {
 /// A full-width flat menu entry with an optional shortcut hint on the right.
 fn action<'a>(label: &'static str, hint: &'static str, msg: Message) -> Element<'a, Message> {
     button(
-        row![text(label).size(13.0), space().width(Length::Fill), muted(hint.to_owned())]
+        row![text(label).size(14.0).font(UI_FONT), space().width(Length::Fill), muted(hint.to_owned())]
             .align_y(iced::Alignment::Center),
     )
     .width(Length::Fill)
@@ -1019,7 +1036,7 @@ fn slider_row<'a>(control: iced::widget::Slider<'a, f32, Message>, label: String
 
 /// A raised button for dialogs.
 fn dialog_button<'a>(label: &'static str, msg: Message) -> Element<'a, Message> {
-    button(text(label).size(13.0))
+    button(text(label).size(14.0).font(UI_FONT))
         .padding(Padding::new(5.0).left(14.0).right(14.0))
         .on_press(msg)
         .style(|theme: &Theme, status| {
@@ -1037,7 +1054,7 @@ fn dialog_button<'a>(label: &'static str, msg: Message) -> Element<'a, Message> 
 
 /// A labelled preference row in the menu.
 fn setting<'a>(label: &'static str, control: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-    row![text(label).size(13.0).width(110.0), control.into()]
+    row![text(label).size(14.0).font(UI_FONT).width(110.0), control.into()]
         .align_y(iced::Alignment::Center)
         .spacing(8)
         .padding(Padding::new(0.0).left(8.0).right(8.0))
@@ -1049,7 +1066,7 @@ fn pick<'a, T>(options: &'a [T], selected: T, on_select: impl Fn(T) -> Message +
 where
     T: ToString + PartialEq + Clone + 'a,
 {
-    pick_list(options, Some(selected), on_select).text_size(13.0).width(Length::Fill).into()
+    pick_list(options, Some(selected), on_select).text_size(14.0).font(UI_FONT).width(Length::Fill).into()
 }
 
 /// Keyboard shortcuts, shared by the editor key binding and the global listener.
@@ -1137,6 +1154,7 @@ pub fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Bold.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Italic.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/iAWriterQuattroS-BoldItalic.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Lato-Light.ttf").as_slice())
         // Set first: the builder methods below extend these settings. The app id must
         // match the desktop file name so Wayland compositors can find the launcher icon.
         .window(window::Settings {

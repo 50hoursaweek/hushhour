@@ -110,6 +110,8 @@ pub struct Preferences {
     pub sound_set: SoundSet,
     /// 0..=1.
     pub sound_volume: f32,
+    /// Show the welcome dialog at launch until the user opts out.
+    pub show_welcome: bool,
     /// Not saved: the app always starts silent.
     pub music: Music,
     /// 0..=1.
@@ -128,6 +130,7 @@ impl Default for Preferences {
             typing_sound: true,
             sound_set: SoundSet::Soft,
             sound_volume: 0.6,
+            show_welcome: true,
             music: Music::Off,
             music_volume: 0.5,
         }
@@ -138,11 +141,6 @@ impl Preferences {
     /// `$XDG_CONFIG_HOME/inkpad/preferences`.
     pub fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join("inkpad").join("preferences"))
-    }
-
-    /// True until the preferences have been saved once, i.e. on the first launch.
-    pub fn is_first_run() -> bool {
-        !Self::path().is_some_and(|p| p.exists())
     }
 
     /// Read the preferences file, falling back to defaults for anything missing or malformed.
@@ -174,6 +172,7 @@ impl Preferences {
                 "sound_set" => prefs.sound_set = pick(&SoundSet::ALL, value).unwrap_or(prefs.sound_set),
                 "sound_volume" => prefs.sound_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.sound_volume),
                 "music_volume" => prefs.music_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.music_volume),
+                "show_welcome" => prefs.show_welcome = value != "false",
                 _ => {}
             }
         }
@@ -190,7 +189,7 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
@@ -201,6 +200,7 @@ impl Preferences {
             self.sound_set.label(),
             self.sound_volume,
             self.music_volume,
+            self.show_welcome,
         )
     }
 }
@@ -231,6 +231,7 @@ mod tests {
             typing_sound: false,
             sound_set: SoundSet::Mechanical,
             sound_volume: 0.25,
+            show_welcome: false,
             music: Music::Off,
             music_volume: 0.35,
         };
