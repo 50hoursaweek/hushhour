@@ -44,18 +44,8 @@ impl BandPass {
         Self { low: LowPass::new(high_hz), high: LowPass::new(low_hz) }
     }
 
-    /// Centred on `centre_hz`, about one octave wide.
-    pub fn around(centre_hz: f32) -> Self {
-        Self::new(centre_hz / 1.4, centre_hz * 1.4)
-    }
-
     pub fn run(&mut self, x: f32) -> f32 {
         let wide = self.low.run(x);
         wide - self.high.run(wide)
     }
-}
-
-/// A decaying exponential envelope in samples: 1 at the start, 1/e after `tau_s`.
-pub fn decay(i: usize, tau_s: f32) -> f32 {
-    (-(i as f32) / (tau_s * SR)).exp()
 }

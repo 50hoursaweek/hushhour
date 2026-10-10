@@ -1,5 +1,5 @@
 //! Background soundscapes for focus: generated ambiences that loop forever,
-//! binaural beats, and the user's own tracks decoded from files.
+//! and the user's own tracks decoded from files.
 //!
 //! Everything renders stereo interleaved f32 at [`crate::sound::RATE`].
 
@@ -27,11 +27,7 @@ pub enum Music {
     Night,
     Train,
     Breeze,
-    BinauralCalm,
-    BinauralFocus,
     Drone,
-    PianoDrift,
-    Gymnopedie,
     /// A track shipped with the app, by file name in the bundled music directory.
     Bundled(String),
     /// A file in the user's music directory, by file name.
@@ -39,18 +35,7 @@ pub enum Music {
 }
 
 impl Music {
-    pub const BUILT_IN: [Self; 10] = [
-        Self::Off,
-        Self::PianoDrift,
-        Self::Gymnopedie,
-        Self::Drone,
-        Self::Rain,
-        Self::Night,
-        Self::Train,
-        Self::Breeze,
-        Self::BinauralCalm,
-        Self::BinauralFocus,
-    ];
+    pub const BUILT_IN: [Self; 6] = [Self::Off, Self::Drone, Self::Rain, Self::Night, Self::Train, Self::Breeze];
 
     pub fn label(&self) -> String {
         match self {
@@ -59,11 +44,7 @@ impl Music {
             Self::Night => "Cricket night".into(),
             Self::Train => "Night train".into(),
             Self::Breeze => "Open window".into(),
-            Self::BinauralCalm => "Alpha waves, 10 Hz (headphones)".into(),
-            Self::BinauralFocus => "Beta waves, 15 Hz (headphones)".into(),
             Self::Drone => "Focus drone".into(),
-            Self::PianoDrift => "Piano drift".into(),
-            Self::Gymnopedie => "Gymnopédie No. 1 (Satie)".into(),
             Self::Bundled(name) | Self::File(name) => {
                 name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name).to_owned()
             }
@@ -78,11 +59,7 @@ impl Music {
             Self::Night => Box::new(Night::new()),
             Self::Train => Box::new(Train::new()),
             Self::Breeze => Box::new(Breeze::new()),
-            Self::BinauralCalm => Box::new(Binaural::new(200.0, 10.0)),
-            Self::BinauralFocus => Box::new(Binaural::new(220.0, 15.0)),
             Self::Drone => Box::new(Drone::new()),
-            Self::PianoDrift => Box::new(PianoDrift::new()),
-            Self::Gymnopedie => Box::new(ScorePlayer::new(crate::scores::GYMNOPEDIE_1, 66.0)),
             Self::Bundled(name) => Box::new(FileSource::open(&dirs.bundled.as_ref()?.join(name))?),
             Self::File(name) => Box::new(FileSource::open(&dirs.user.join(name))?),
         })
@@ -520,41 +497,6 @@ impl Source for Breeze {
 }
 
 // ---------------------------------------------------------------------------
-// Binaural beats: a slightly different tone in each ear over a soft noise bed
-
-struct Binaural {
-    rng: Rng,
-    phase: [f32; 2],
-    freq: [f32; 2],
-    bed: [LowPass; 2],
-}
-
-impl Binaural {
-    fn new(carrier_hz: f32, beat_hz: f32) -> Self {
-        Self {
-            rng: Rng::new(),
-            phase: [0.0; 2],
-            freq: [carrier_hz, carrier_hz + beat_hz],
-            bed: [LowPass::new(600.0), LowPass::new(600.0)],
-        }
-    }
-}
-
-impl Source for Binaural {
-    fn fill(&mut self, out: &mut [f32]) {
-        for frame in out.chunks_mut(2) {
-            for ch in 0..2 {
-                self.phase[ch] = (self.phase[ch] + self.freq[ch] / SR) % 1.0;
-                let tone = (self.phase[ch] * TAU).sin() * 0.16;
-                let bed = self.bed[ch].run(self.rng.noise()) * 0.05;
-                frame[ch] = tone + bed;
-            }
-        }
-    }
-}
-
-
-// ---------------------------------------------------------------------------
 // Focus drone: a breathing pad on a low major chord, through a soft reverb
 
 /// One pad voice: two oscillator slots cross-faded so the pitch can move and return.
@@ -714,252 +656,6 @@ impl Source for Drone {
     }
 }
 
-
-// ---------------------------------------------------------------------------
-// A piano: additive partials with inharmonicity, a hammer tap and a soft reverb
-
-/// One sounding note.
-struct PianoNote {
-    /// (phase, frequency, amplitude, decay per sample) per partial.
-    partials: Vec<(f32, f32, f32, f32)>,
-    /// Hammer tap: a short burst of filtered noise.
-    tap: BandPass,
-    tap_env: f32,
-    pos: usize,
-    age: usize,
-    /// Samples until the key is released; after that the note dies quickly.
-    hold: usize,
-    pan: f32,
-}
-
-impl PianoNote {
-    fn new(rng: &mut Rng, midi: u8, velocity: f32, hold_s: f32) -> Self {
-        let f0 = 440.0 * 2f32.powf((midi as f32 - 69.0) / 12.0);
-        // Higher notes die sooner; the lowest ring for seconds.
-        let base_tau = (3.2 - (midi as f32 - 36.0) / 60.0 * 2.4).clamp(0.6, 3.2);
-        let inharmonicity = 0.0004;
-        let partials = (1..=6)
-            .map(|n| {
-                let n = n as f32;
-                let freq = f0 * n * (1.0 + inharmonicity * n * n).sqrt();
-                let amp = velocity * 0.5 / n.powf(1.3);
-                let tau = base_tau / (1.0 + 0.6 * (n - 1.0));
-                (rng.range(0.0, 1.0), freq, amp, (-1.0 / (tau * SR)).exp())
-            })
-            .filter(|(_, freq, _, _)| *freq < 16_000.0)
-            .collect();
-        Self {
-            partials,
-            tap: BandPass::around(f0.clamp(400.0, 3000.0) * 2.0),
-            tap_env: velocity * 0.25,
-            pos: (rng.next_u64() % 10_000) as usize,
-            age: 0,
-            hold: (hold_s * SR) as usize,
-            // Low notes sit a little left, high notes a little right.
-            pan: 0.5 + ((midi as f32 - 60.0) / 60.0).clamp(-0.35, 0.35),
-        }
-    }
-
-    fn finished(&self) -> bool {
-        self.partials.iter().all(|(_, _, amp, _)| *amp < 0.0003) && self.tap_env < 0.0003
-    }
-
-    fn run(&mut self, noise: &[f32]) -> (f32, f32) {
-        // 3 ms attack, then the partials decay; a released key damps everything fast.
-        let attack = (self.age as f32 / (0.003 * SR)).min(1.0);
-        let damping = if self.age > self.hold { (-1.0 / (0.25 * SR)).exp() } else { 1.0 };
-        self.age += 1;
-        let mut s = 0.0;
-        for (phase, freq, amp, decay) in &mut self.partials {
-            *phase = (*phase + *freq / SR) % 1.0;
-            s += (*phase * TAU).sin() * *amp;
-            *amp *= *decay * damping;
-        }
-        self.pos = (self.pos + 1) % noise.len();
-        s += self.tap.run(noise[self.pos]) * self.tap_env;
-        self.tap_env *= (-1.0 / (0.004 * SR)).exp();
-        let s = s * attack;
-        (s * (1.0 - self.pan).sqrt(), s * self.pan.sqrt())
-    }
-}
-
-/// The instrument: sounding notes, a noise table for the hammer taps, and reverb.
-struct Piano {
-    rng: Rng,
-    notes: Vec<PianoNote>,
-    noise: Vec<f32>,
-    reverb: [Reverb; 2],
-}
-
-impl Piano {
-    fn new() -> Self {
-        let mut rng = Rng::new();
-        let noise = (0..10_000).map(|_| rng.noise()).collect();
-        Self { rng, notes: Vec::new(), noise, reverb: [Reverb::new(0), Reverb::new(23)] }
-    }
-
-    fn play(&mut self, midi: u8, velocity: f32, hold_s: f32) {
-        if self.notes.len() < 48 {
-            let note = PianoNote::new(&mut self.rng, midi, velocity, hold_s);
-            self.notes.push(note);
-        }
-    }
-
-    /// Render one stereo frame.
-    fn frame(&mut self) -> [f32; 2] {
-        let mut lr = [0.0f32; 2];
-        for note in &mut self.notes {
-            let (l, r) = note.run(&self.noise);
-            lr[0] += l;
-            lr[1] += r;
-        }
-        self.notes.retain(PianoNote::finished_not);
-        for ch in 0..2 {
-            let wet = self.reverb[ch].run(lr[ch]);
-            lr[ch] = lr[ch] * 0.7 + wet * 0.3;
-        }
-        lr
-    }
-}
-
-impl PianoNote {
-    fn finished_not(&self) -> bool {
-        !self.finished()
-    }
-}
-
-/// Plays a score from [`crate::scores`] with a little human timing, then pauses and repeats.
-struct ScorePlayer {
-    piano: Piano,
-    notes: &'static [crate::scores::Note],
-    /// Samples per MIDI tick at the chosen tempo.
-    samples_per_tick: f32,
-    /// Position in samples from the start of the piece, including the pause before repeating.
-    position: f32,
-    next: usize,
-    length: f32,
-    /// Per-note timing jitter, in samples, decided once per pass.
-    jitter: Vec<f32>,
-}
-
-impl ScorePlayer {
-    fn new(notes: &'static [crate::scores::Note], bpm: f32) -> Self {
-        let samples_per_tick = SR * 60.0 / bpm / crate::scores::PPQ as f32;
-        let end = notes.iter().map(|(s, d, _)| (*s as f32 + *d as f32) * samples_per_tick).fold(0.0, f32::max);
-        let mut player = Self {
-            piano: Piano::new(),
-            notes,
-            samples_per_tick,
-            position: 0.0,
-            next: 0,
-            // Six seconds of silence before the piece comes round again.
-            length: end + 6.0 * SR,
-            jitter: Vec::new(),
-        };
-        player.humanise();
-        player
-    }
-
-    fn humanise(&mut self) {
-        let rng = &mut self.piano.rng;
-        self.jitter = self.notes.iter().map(|_| rng.range(-0.012, 0.012) * SR).collect();
-    }
-}
-
-impl Source for ScorePlayer {
-    fn fill(&mut self, out: &mut [f32]) {
-        for frame in out.chunks_mut(2) {
-            while self.next < self.notes.len() {
-                let (start, length, midi) = self.notes[self.next];
-                let at = start as f32 * self.samples_per_tick + self.jitter[self.next];
-                if at > self.position {
-                    break;
-                }
-                // Gentle dynamics: bass softer, melody a touch louder, a little variation.
-                let velocity = (if midi >= 72 { 0.62 } else if midi < 55 { 0.45 } else { 0.5 })
-                    * self.piano.rng.range(0.9, 1.1);
-                // Let notes ring a bit past their written length, like a light pedal.
-                let hold = length as f32 * self.samples_per_tick / SR * 1.3;
-                self.piano.play(midi, velocity, hold);
-                self.next += 1;
-            }
-            self.position += 1.0;
-            if self.position >= self.length {
-                self.position = 0.0;
-                self.next = 0;
-                self.humanise();
-            }
-            let lr = self.piano.frame();
-            frame[0] = lr[0];
-            frame[1] = lr[1];
-        }
-    }
-
-    fn fade_seconds(&self) -> (f32, f32) {
-        (2.0, 2.0)
-    }
-}
-
-/// Generative piano: sparse notes from a major pentatonic scale over an occasional bass,
-/// never the same twice.
-struct PianoDrift {
-    piano: Piano,
-    until_note: f32,
-    until_bass: f32,
-    last: Option<usize>,
-}
-
-/// D major pentatonic across three octaves, MIDI pitches.
-const DRIFT_SCALE: [u8; 15] = [62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86, 88, 90, 93, 95];
-const DRIFT_BASS: [u8; 4] = [38, 45, 50, 43];
-
-impl PianoDrift {
-    fn new() -> Self {
-        Self { piano: Piano::new(), until_note: 0.5 * SR, until_bass: 2.0 * SR, last: None }
-    }
-}
-
-impl Source for PianoDrift {
-    fn fill(&mut self, out: &mut [f32]) {
-        for frame in out.chunks_mut(2) {
-            self.until_note -= 1.0;
-            if self.until_note <= 0.0 {
-                let rng = &mut self.piano.rng;
-                // Mostly step to a neighbour in the scale, sometimes leap.
-                let idx = match self.last {
-                    Some(last) if rng.range(0.0, 1.0) < 0.7 => {
-                        (last as i32 + [-2, -1, 1, 2][(rng.next_u64() % 4) as usize]).clamp(0, DRIFT_SCALE.len() as i32 - 1) as usize
-                    }
-                    _ => (rng.next_u64() % DRIFT_SCALE.len() as u64) as usize,
-                };
-                self.last = Some(idx);
-                let velocity = rng.range(0.35, 0.6);
-                let hold = rng.range(1.5, 4.0);
-                self.until_note = rng.range(0.8, 3.5) * SR;
-                let second = rng.range(0.0, 1.0) < 0.25;
-                self.piano.play(DRIFT_SCALE[idx], velocity, hold);
-                if second && idx >= 2 {
-                    // A third below, a touch softer, for an occasional dyad.
-                    self.piano.play(DRIFT_SCALE[idx - 2], velocity * 0.8, hold);
-                }
-            }
-            self.until_bass -= 1.0;
-            if self.until_bass <= 0.0 {
-                let rng = &mut self.piano.rng;
-                let midi = DRIFT_BASS[(rng.next_u64() % DRIFT_BASS.len() as u64) as usize];
-                self.until_bass = rng.range(6.0, 12.0) * SR;
-                self.piano.play(midi, 0.4, 5.0);
-            }
-            let lr = self.piano.frame();
-            frame[0] = lr[0];
-            frame[1] = lr[1];
-        }
-    }
-
-    fn fade_seconds(&self) -> (f32, f32) {
-        (2.0, 2.0)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // A file from the music directory, looped

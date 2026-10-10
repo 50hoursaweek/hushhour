@@ -12,11 +12,8 @@ use std::time::{Duration, Instant};
 use libloading::Library;
 use libloading::os::unix::Symbol;
 
-use crate::keys::Voice as KeyVoice;
 use crate::music::{Music, MusicDirs, Source};
 use crate::prefs::SoundSet;
-
-pub use crate::keys::Key;
 
 pub const RATE: u32 = 44_100;
 const CHANNELS: usize = 2;
@@ -26,6 +23,68 @@ const BLOCK: usize = 220;
 const LATENCY_US: u32 = 20_000;
 /// Close the device after this much silence so it is not held open while idle.
 const IDLE_CLOSE: Duration = Duration::from_secs(3);
+
+/// The key samples for each [`SoundSet`], in the order of `SoundSet::ALL`.
+/// CC0 recordings from unicaegames' Keyboard Soundpack #1 (see assets/sounds/README.md).
+const SAMPLES: [&[&[u8]]; 2] = [
+    &[
+        include_bytes!("../assets/sounds/soft/key1.wav"),
+        include_bytes!("../assets/sounds/soft/key2.wav"),
+        include_bytes!("../assets/sounds/soft/key3.wav"),
+        include_bytes!("../assets/sounds/soft/key4.wav"),
+        include_bytes!("../assets/sounds/soft/key5.wav"),
+        include_bytes!("../assets/sounds/soft/key6.wav"),
+    ],
+    &[
+        include_bytes!("../assets/sounds/keyboard/key1.wav"),
+        include_bytes!("../assets/sounds/keyboard/key2.wav"),
+        include_bytes!("../assets/sounds/keyboard/key3.wav"),
+        include_bytes!("../assets/sounds/keyboard/key4.wav"),
+        include_bytes!("../assets/sounds/keyboard/key5.wav"),
+        include_bytes!("../assets/sounds/keyboard/key6.wav"),
+        include_bytes!("../assets/sounds/keyboard/key7.wav"),
+        include_bytes!("../assets/sounds/keyboard/key8.wav"),
+    ],
+];
+
+fn set_index(set: SoundSet) -> usize {
+    SoundSet::ALL.iter().position(|s| *s == set).unwrap_or(0)
+}
+
+/// Decode a 16-bit PCM WAV (mono or stereo) into mono f32 samples in -1..=1.
+fn decode_wav(bytes: &[u8]) -> Vec<f32> {
+    let u16_at = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
+    let u32_at = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
+    let mut channels = 1usize;
+    let mut i = 12;
+    while i + 8 <= bytes.len() {
+        let id = &bytes[i..i + 4];
+        let len = u32_at(i + 4);
+        let body = i + 8;
+        if id == b"fmt " {
+            channels = u16_at(body + 2).max(1) as usize;
+        } else if id == b"data" {
+            let end = (body + len).min(bytes.len());
+            return bytes[body..end]
+                .chunks_exact(2 * channels)
+                .map(|frame| {
+                    frame.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0).sum::<f32>()
+                        / channels as f32
+                })
+                .collect();
+        }
+        i = body + len + (len & 1);
+    }
+    Vec::new()
+}
+
+/// What kind of key was pressed; each gets a slightly different sound.
+#[derive(Debug, Clone, Copy)]
+pub enum Key {
+    Character,
+    Enter,
+    Backspace,
+}
 
 struct Play {
     key: Key,
@@ -70,6 +129,22 @@ impl Sound {
 
     pub fn set_music_volume(&self, volume: f32) {
         let _ = self.tx.send(Command::MusicVolume(volume));
+    }
+}
+
+/// One key sample being played.
+struct Voice {
+    set: usize,
+    sample: usize,
+    /// Position in the sample, in frames; fractional because of the rate variation.
+    position: f32,
+    rate: f32,
+    gain: f32,
+}
+
+impl Voice {
+    fn finished(&self, samples: &[Vec<Vec<f32>>]) -> bool {
+        self.position as usize + 1 >= samples[self.set][self.sample].len()
     }
 }
 
@@ -138,10 +213,11 @@ impl Layer {
 }
 
 fn mixer(rx: mpsc::Receiver<Command>, dirs: MusicDirs) {
+    let samples: Vec<Vec<Vec<f32>>> =
+        SAMPLES.iter().map(|set| set.iter().map(|bytes| decode_wav(bytes)).collect()).collect();
     let mut rng = Rng::new();
-    // One second of white noise, built once and read from random offsets by key sounds.
-    let noise: Vec<f32> = (0..RATE as usize).map(|_| rng.noise()).collect();
-    let mut voices: Vec<KeyVoice> = Vec::new();
+    let mut voices: Vec<Voice> = Vec::new();
+    let mut last_sample = usize::MAX;
     let mut block = vec![0f32; BLOCK * CHANNELS];
     let mut music_block = vec![0f32; BLOCK * CHANNELS];
     let mut pcm = vec![0i16; BLOCK * CHANNELS];
@@ -195,7 +271,21 @@ fn mixer(rx: mpsc::Receiver<Command>, dirs: MusicDirs) {
         }
 
         if let Some(play) = play {
-            voices.push(KeyVoice::new(play.set, play.key, play.volume, &mut rng, noise.len()));
+            // Never repeat the previous sample, so runs of keys do not sound mechanical.
+            let set = set_index(play.set);
+            let count = samples[set].len();
+            let mut sample = (rng.next_u64() % count as u64) as usize;
+            if sample == last_sample {
+                sample = (sample + 1) % count;
+            }
+            last_sample = sample;
+            let (rate, gain) = match play.key {
+                Key::Character => (rng.range(0.94, 1.06), rng.range(0.8, 1.0)),
+                Key::Enter => (rng.range(0.82, 0.88), 1.0),
+                Key::Backspace => (rng.range(1.04, 1.12), rng.range(0.6, 0.75)),
+            };
+            // Square the volume so the slider feels linear in loudness.
+            voices.push(Voice { set, sample, position: 0.0, rate, gain: gain * play.volume * play.volume });
             last_activity = Instant::now();
             if device.is_none() {
                 device = Alsa::open();
@@ -221,15 +311,22 @@ fn mixer(rx: mpsc::Receiver<Command>, dirs: MusicDirs) {
             }
             alive
         });
-        // Key sounds, synthesised on the fly, mono, placed in the centre.
+        // Key sounds, mono, placed in the centre.
         for voice in &mut voices {
+            let data = &samples[voice.set][voice.sample];
             for out in block.chunks_mut(CHANNELS) {
-                let s = voice.render(&noise);
+                let i = voice.position as usize;
+                if i + 1 >= data.len() {
+                    break;
+                }
+                let frac = voice.position - i as f32;
+                let s = (data[i] * (1.0 - frac) + data[i + 1] * frac) * voice.gain;
                 out[0] += s;
                 out[1] += s;
+                voice.position += voice.rate;
             }
         }
-        voices.retain(|v| !v.finished());
+        voices.retain(|v| !v.finished(&samples));
         for (dst, src) in pcm.iter_mut().zip(&block) {
             *dst = (src.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
         }

@@ -5,11 +5,9 @@ mod editor;
 mod frost;
 mod highlight;
 mod history;
-mod keys;
 mod music;
 mod palette;
 mod prefs;
-mod scores;
 mod sound;
 mod stats;
 
@@ -480,8 +478,13 @@ impl Inkpad {
 
     /// Rescan the music folder for the picker.
     fn refresh_music_options(&mut self) {
-        self.music_options = Music::BUILT_IN.to_vec();
-        self.music_options.extend(self.music_dirs.choices());
+        // Off, then the bundled tracks, then the generated soundscapes, then the user's own files.
+        let (bundled, own): (Vec<Music>, Vec<Music>) =
+            self.music_dirs.choices().into_iter().partition(|m| matches!(m, Music::Bundled(_)));
+        self.music_options = vec![Music::Off];
+        self.music_options.extend(bundled);
+        self.music_options.extend(Music::BUILT_IN.iter().filter(|m| **m != Music::Off).cloned());
+        self.music_options.extend(own);
     }
 
     /// Persist the preferences; a failure is reported in the status bar rather than fatal.
@@ -694,7 +697,7 @@ impl Inkpad {
                 column![
                     paragraph("A quiet place to write Markdown. The page is the whole window: there is no toolbar, and the window has no title bar."),
                     paragraph("The ☰ button in the top-left corner (or Ctrl+,) opens the menu, with file actions, Appearance, and Sound and music."),
-                    paragraph("Sound and music is where you pick a typing sound and a background soundscape: rain, a night of crickets, a train, a breeze, binaural beats, bundled tracks, or your own music."),
+                    paragraph("Sound and music is where you pick a typing sound and a background: bundled music loops, generated soundscapes (rain, a night of crickets, a train, a breeze, a drone), or your own tracks."),
                     muted(format!("Your own tracks (mp3, ogg, flac, wav) go in\n{}", self.music_dirs.user.display())),
                     paragraph("Handy keys: Ctrl+D cycles the spotlight (dims everything but the paragraph or sentence you are in), Ctrl+T anchors the caret line mid-screen, Ctrl+S saves, F11 goes fullscreen."),
                     iced::widget::checkbox(!self.prefs.show_welcome)
