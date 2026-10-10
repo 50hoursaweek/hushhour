@@ -1,7 +1,10 @@
 # Inkpad
 
-An iA Writer style Markdown editor for Linux, written in Rust with [iced](https://iced.rs) 0.14.
-Working name; rename at will.
+A quiet Markdown editor for Linux, written in Rust with [iced](https://iced.rs) 0.14.
+It grew out of admiration for iA Writer and OmmWriter and has its own identity:
+the page is the whole window, a spotlight dims everything but what you are writing,
+the caret line can be anchored mid-screen, and typing sounds and soundscapes keep
+you company.
 
 ## Build and run
 
@@ -20,8 +23,8 @@ and run `packaging/build-appimage.sh`; the result lands in `dist/`.
 |---|---|
 | Ctrl+, | Open the menu; Esc or a click outside closes it or any dialog |
 | Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+N | Open, save, save as, new |
-| Ctrl+D | Cycle focus mode: off, paragraph, sentence |
-| Ctrl+T | Toggle typewriter mode (caret line stays vertically centred) |
+| Ctrl+D | Cycle the spotlight: off, paragraph, sentence |
+| Ctrl+T | Toggle the anchor (the caret line stays vertically centred) |
 | Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | Undo, redo |
 | Ctrl+Shift+T | Cycle theme: light, sepia, dark |
 | Ctrl+Shift+F | Cycle font: Duo, Mono, Quattro |
@@ -38,7 +41,7 @@ A welcome dialog explains the menu and the sound settings at launch until its
 The ☰ button in the top-left corner opens the menu: file actions, then Appearance and
 Sound and music, which open dialogs, then the Writing and Window sections, then About.
 
-Preferences (theme, font, size, line height, focus mode, typewriter mode) are
+Preferences (theme, font, size, line height, spotlight, anchor) are
 saved to `~/.config/inkpad/preferences` whenever they change.
 
 A key sound plays on every edit; the Sound and music dialog has a switch, a choice of four
@@ -46,10 +49,10 @@ sound sets (soft keys, keyboard, typewriter, mechanical) and a volume slider for
 Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
 without it the editor is simply silent.
 
-Background music for focus lives in the Sound and music dialog: five generated
-soundscapes that never repeat (spring rain with an occasional gong, a night in
-Menorca with crickets, a train ride, curtains swaying in a breeze) and two binaural
-beats (10 Hz calm, 15 Hz focus; headphones needed), four bundled tracks
+Background music lives in the Sound and music dialog: four generated soundscapes
+that never repeat (Rainfall with an occasional gong, Cricket night, Night train, Open
+window) and two binaural beats (Alpha waves at 10 Hz, Beta waves at 15 Hz; headphones
+needed), four bundled tracks
 (`assets/music`, shipped in the AppImage under `usr/share/inkpad/music`), plus any
 tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop).
 Switching cross-fades over 1.5 s, and the music has its own volume. The app always
@@ -65,16 +68,16 @@ The menu's About section shows the version and a build number. `build.rs` increm
 `build-number` on every build that follows a source change, so a running copy can be
 matched to a build; the file is committed so numbers keep counting across machines.
 
-Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
+Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Layout
 
 - `src/main.rs` – application state, messages, view, shortcuts, file I/O
-- `src/editor/widget.rs` – iced's `text_editor` widget, vendored and extended with typewriter mode
+- `src/editor/widget.rs` – iced's `text_editor` widget, vendored and extended with the anchor (typewriter scrolling)
 - `src/editor/mod.rs` – cosmic-text buffer access and caret geometry
 - `src/history.rs` – undo/redo as coalesced text deltas
-- `src/highlight.rs` – line-based Markdown highlighter plus focus-mode dimming
+- `src/highlight.rs` – line-based Markdown highlighter plus spotlight dimming
 - `src/palette.rs` – light, sepia and dark colour schemes
 - `src/prefs.rs` – user preferences and their on-disk format
 - `src/sound.rs` – mixer thread for key sounds and music, played through ALSA (loaded at runtime)

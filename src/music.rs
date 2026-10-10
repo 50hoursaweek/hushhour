@@ -50,12 +50,12 @@ impl Music {
     pub fn label(&self) -> String {
         match self {
             Self::Off => "Off".into(),
-            Self::Rain => "Spring rain and gong".into(),
-            Self::Night => "Night in Menorca".into(),
-            Self::Train => "Train ride".into(),
-            Self::Breeze => "Swaying curtains".into(),
-            Self::BinauralCalm => "Binaural calm, 10 Hz (headphones)".into(),
-            Self::BinauralFocus => "Binaural focus, 15 Hz (headphones)".into(),
+            Self::Rain => "Rainfall".into(),
+            Self::Night => "Cricket night".into(),
+            Self::Train => "Night train".into(),
+            Self::Breeze => "Open window".into(),
+            Self::BinauralCalm => "Alpha waves, 10 Hz (headphones)".into(),
+            Self::BinauralFocus => "Beta waves, 15 Hz (headphones)".into(),
             Self::Bundled(name) | Self::File(name) => {
                 name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name).to_owned()
             }
@@ -236,7 +236,7 @@ impl Burst {
 }
 
 // ---------------------------------------------------------------------------
-// Rain with an occasional soft gong
+// Rainfall with an occasional soft gong
 
 struct Rain {
     rng: Rng,
@@ -325,7 +325,7 @@ impl Source for Rain {
 }
 
 // ---------------------------------------------------------------------------
-// A Mediterranean night: crickets over a faint warm breeze
+// Cricket night: crickets over a faint warm breeze
 
 struct Cricket {
     carrier_hz: f32,
@@ -416,7 +416,7 @@ impl Source for Night {
 }
 
 // ---------------------------------------------------------------------------
-// A train ride: rumble, hiss and the clickety-clack of the rails
+// Night train: rumble, hiss and the clickety-clack of the rails
 
 struct Train {
     rng: Rng,
@@ -484,7 +484,7 @@ impl Source for Train {
 }
 
 // ---------------------------------------------------------------------------
-// Curtains swaying in a breeze
+// Open window: a breeze with the curtains stirring
 
 struct Breeze {
     rng: Rng,

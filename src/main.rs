@@ -1,4 +1,4 @@
-//! Inkpad: an iA Writer style Markdown editor for Linux, built with iced.
+//! Inkpad: a quiet Markdown editor for Linux, built with iced.
 
 mod editor;
 mod highlight;
@@ -181,7 +181,7 @@ impl Inkpad {
         let mut tasks = vec![iced::widget::operation::focus_next()];
         for arg in std::env::args().skip(1) {
             match arg.as_str() {
-                "--typewriter" => app.prefs.typewriter = true,
+                "--anchor" => app.prefs.typewriter = true,
                 "--menu" => app.menu_open = true,
                 "--dialog=appearance" => app.dialog = Some(Dialog::Appearance),
                 "--dialog=sound" => app.dialog = Some(Dialog::Sound),
@@ -546,7 +546,7 @@ impl Inkpad {
         (self.prefs.size + self.size_step()).min(MAX_SIZE)
     }
 
-    /// Recompute the paragraph and sentence under the cursor for focus mode.
+    /// Recompute the paragraph and sentence under the cursor for the spotlight.
     fn refresh_focus(&mut self) {
         let cursor = self.content.cursor();
         let line = cursor.position.line;
@@ -592,9 +592,9 @@ impl Inkpad {
             action("Sound and music…", "", Message::OpenDialog(Dialog::Sound)),
             divider(),
             heading("WRITING"),
-            setting("Focus", pick(&FocusMode::ALL, self.prefs.focus, Message::SetFocus)),
+            setting("Spotlight", pick(&FocusMode::ALL, self.prefs.focus, Message::SetFocus)),
             setting(
-                "Typewriter",
+                "Anchor",
                 toggler(self.prefs.typewriter).on_toggle(Message::SetTypewriter).size(18.0),
             ),
             divider(),
@@ -639,7 +639,7 @@ impl Inkpad {
                     paragraph("The ☰ button in the top-left corner (or Ctrl+,) opens the menu, with file actions, Appearance, and Sound and music."),
                     paragraph("Sound and music is where you pick a typing sound and a background soundscape: rain, a night of crickets, a train, a breeze, binaural beats, bundled tracks, or your own music."),
                     muted(format!("Your own tracks (mp3, ogg, flac, wav) go in\n{}", self.music_dirs.user.display())),
-                    paragraph("Handy keys: Ctrl+D cycles focus mode, Ctrl+T toggles typewriter mode, Ctrl+S saves, F11 goes fullscreen."),
+                    paragraph("Handy keys: Ctrl+D cycles the spotlight (dims everything but the paragraph or sentence you are in), Ctrl+T anchors the caret line mid-screen, Ctrl+S saves, F11 goes fullscreen."),
                     iced::widget::checkbox(!self.prefs.show_welcome)
                         .label("Don't show this again")
                         .on_toggle(|checked| Message::SetShowWelcome(!checked))
@@ -890,12 +890,12 @@ impl Inkpad {
             muted(self.notice.clone().unwrap_or_default()),
             space().width(16),
             item(
-                format!("Focus: {}", self.prefs.focus.label()),
+                format!("Spotlight: {}", self.prefs.focus.label()),
                 self.prefs.focus != FocusMode::Off,
                 Message::CycleFocus,
             ),
             item(
-                format!("Typewriter: {}", if self.prefs.typewriter { "On" } else { "Off" }),
+                format!("Anchor: {}", if self.prefs.typewriter { "On" } else { "Off" }),
                 self.prefs.typewriter,
                 Message::ToggleTypewriter,
             ),

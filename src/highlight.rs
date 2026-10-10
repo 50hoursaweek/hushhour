@@ -1,4 +1,5 @@
-//! Line-based Markdown highlighter with iA Writer style focus mode.
+//! Line-based Markdown highlighter with spotlight dimming (everything but the
+//! current paragraph or sentence is faded).
 //!
 //! iced feeds the highlighter one logical line at a time, in order, starting
 //! from the first changed line. We keep just enough state (fenced code blocks)
