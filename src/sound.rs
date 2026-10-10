@@ -6,14 +6,13 @@
 //! `default` device is routed through the sound server.
 
 use std::ffi::{CString, c_char, c_int, c_long, c_uint, c_ulong, c_void};
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use libloading::Library;
 use libloading::os::unix::Symbol;
 
-use crate::music::{Music, Source};
+use crate::music::{Music, MusicDirs, Source};
 use crate::prefs::SoundSet;
 
 pub const RATE: u32 = 44_100;
@@ -101,12 +100,12 @@ pub struct Sound {
 
 impl Sound {
     /// Start the mixer thread. If audio turns out to be unavailable, requests are ignored.
-    /// `music_dir` is where [`Music::File`] tracks are looked up.
-    pub fn start(music_dir: PathBuf) -> Self {
+    /// `dirs` is where tracks are looked up.
+    pub fn start(dirs: MusicDirs) -> Self {
         let (tx, rx) = mpsc::channel::<Command>();
         std::thread::Builder::new()
             .name("inkpad-sound".into())
-            .spawn(move || mixer(rx, music_dir))
+            .spawn(move || mixer(rx, dirs))
             .expect("spawn sound thread");
         Self { tx }
     }
@@ -210,7 +209,7 @@ impl Layer {
     }
 }
 
-fn mixer(rx: mpsc::Receiver<Command>, music_dir: PathBuf) {
+fn mixer(rx: mpsc::Receiver<Command>, dirs: MusicDirs) {
     let samples = decode_samples();
     let mut rng = Rng::new();
     let mut voices: Vec<Voice> = Vec::new();
@@ -246,7 +245,7 @@ fn mixer(rx: mpsc::Receiver<Command>, music_dir: PathBuf) {
                 for layer in &mut layers {
                     layer.target = 0.0;
                 }
-                if let Some(source) = music.source(&music_dir) {
+                if let Some(source) = music.source(&dirs) {
                     layers.push(Layer { source, gain: 0.0, target: music_volume * music_volume });
                 }
                 last_activity = Instant::now();

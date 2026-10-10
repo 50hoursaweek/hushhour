@@ -47,14 +47,16 @@ without it the editor is simply silent.
 Background music for focus lives in the Sound and music dialog: five generated
 soundscapes that never repeat (spring rain with an occasional gong, a night in
 Menorca with crickets, a train ride, curtains swaying in a breeze) and two binaural
-beats (10 Hz calm, 15 Hz focus; headphones needed), plus any tracks you put in
-`~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop). Switching
-cross-fades over 1.5 s, and the music has its own volume.
+beats (10 Hz calm, 15 Hz focus; headphones needed), four bundled tracks
+(`assets/music`, shipped in the AppImage under `usr/share/inkpad/music`), plus any
+tracks you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop).
+Switching cross-fades over 1.5 s, and the music has its own volume.
 
 The text column is 66 characters wide at most and centred, with at least 1.75 em of
-padding on each side. The body size steps up with the window width (18, 20 and 22 px
-with the default size preference, at 900 and 1400 px) so the column fills more of a
-large screen; the size preference and Ctrl+= / Ctrl+- shift all three steps.
+padding on each side, both measured at the window's base size (18 px, stepping to 20
+and 22 px at 900 and 1400 px of window width) so the column fills more of a large
+screen. The size preference and Ctrl+= / Ctrl+- zoom the text inside that column, so
+the margins stay put and the text reflows.
 
 The menu's About section shows the version and a build number. `build.rs` increments
 `build-number` on every build that follows a source change, so a running copy can be

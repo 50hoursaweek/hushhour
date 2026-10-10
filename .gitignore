@@ -1,4 +1,5 @@
 target/
 dist/
-# Source recordings supplied for the sound sets; only the cut samples in assets/sounds are used.
+# Source recordings supplied for the sound sets and bundled music; only the converted files are used.
 assets/*.zip
+assets/*-utc/

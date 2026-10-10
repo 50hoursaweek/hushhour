@@ -28,7 +28,7 @@ use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Subscrip
 use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence_at};
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
-use music::Music;
+use music::{Music, MusicDirs};
 use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet};
 use stats::Stats;
 
@@ -37,9 +37,10 @@ const APP_NAME: &str = "Inkpad";
 const BUILD: &str = env!("INKPAD_BUILD");
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 const DRAG_STRIP: f32 = 28.0;
-// Text column layout. The measure is set in characters so it scales with the font;
-// effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
-/// Maximum line length in characters (`ch`, the width of the `0` glyph).
+// Text column layout. The measure is set in characters of the window's base size
+// (not the zoomed size), so zooming reflows text inside a column whose margins
+// stay put; effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
+/// Maximum line length in characters (`ch`, the width of the `0` glyph) at the base size.
 const MEASURE_CH: f32 = 66.0;
 /// Width of one `ch` in em for the bundled iA Writer fonts.
 const CH_EM: f32 = 0.6;
@@ -48,6 +49,8 @@ const SIDE_PADDING_EM: f32 = 1.75;
 /// Body size steps with window width: points added to the preferred size at or above each width.
 /// With the default 18 pt this gives 18 px below 900, 20 px from 900 and 22 px from 1400.
 const SIZE_STEPS: [(f32, f32); 2] = [(900.0, 2.0), (1400.0, 4.0)];
+/// The size the column is measured against before the user's zoom is applied.
+const BASE_SIZE: f32 = 18.0;
 const EDGE: f32 = 6.0;
 /// Corner radius of the undecorated window, matching typical desktop windows.
 const CORNER_RADIUS: f32 = 12.0;
@@ -70,7 +73,7 @@ struct Inkpad {
     dirty: bool,
     prefs: Preferences,
     sound: sound::Sound,
-    music_dir: PathBuf,
+    music_dirs: MusicDirs,
     /// Menu options for the music picker: the built-ins, then the files found in `music_dir`.
     music_options: Vec<Music>,
     menu_open: bool,
@@ -135,9 +138,9 @@ enum Message {
 
 impl Inkpad {
     fn new() -> (Self, Task<Message>) {
-        let music_dir = music::music_dir().unwrap_or_else(|| PathBuf::from("music"));
-        // Create the folder so it is easy to find and drop tracks into.
-        let _ = std::fs::create_dir_all(&music_dir);
+        let music_dirs = MusicDirs::locate();
+        // Create the user's folder so it is easy to find and drop tracks into.
+        let _ = std::fs::create_dir_all(&music_dirs.user);
         let app = Self {
             content: text_editor::Content::new(),
             text: String::new(),
@@ -145,8 +148,8 @@ impl Inkpad {
             path: None,
             dirty: false,
             prefs: Preferences::load(),
-            sound: sound::Sound::start(music_dir.clone()),
-            music_dir,
+            sound: sound::Sound::start(music_dirs.clone()),
+            music_dirs,
             music_options: Vec::new(),
             menu_open: false,
             dialog: None,
@@ -405,7 +408,7 @@ impl Inkpad {
     /// Rescan the music folder for the picker.
     fn refresh_music_options(&mut self) {
         self.music_options = Music::BUILT_IN.to_vec();
-        self.music_options.extend(music::scan_music_dir(&self.music_dir).into_iter().map(Music::File));
+        self.music_options.extend(self.music_dirs.choices());
     }
 
     /// Persist the preferences; a failure is reported in the status bar rather than fatal.
@@ -505,16 +508,24 @@ impl Inkpad {
         Ok(())
     }
 
-    /// The preferred size plus the step for the current window width, so the
-    /// column fills more of a large screen.
-    fn body_size(&self) -> f32 {
-        let step = SIZE_STEPS
+    /// Points added to sizes for the current window width, so text fills more of a large screen.
+    fn size_step(&self) -> f32 {
+        SIZE_STEPS
             .iter()
             .filter(|(min_width, _)| self.window_width >= *min_width)
             .map(|(_, step)| *step)
             .last()
-            .unwrap_or(0.0);
-        (self.prefs.size + step).min(MAX_SIZE)
+            .unwrap_or(0.0)
+    }
+
+    /// The size the column width and padding are derived from: depends on the window only.
+    fn base_size(&self) -> f32 {
+        BASE_SIZE + self.size_step()
+    }
+
+    /// The size text is drawn at: the preferred size plus the window step.
+    fn body_size(&self) -> f32 {
+        (self.prefs.size + self.size_step()).min(MAX_SIZE)
     }
 
     /// Recompute the paragraph and sentence under the cursor for focus mode.
@@ -652,7 +663,7 @@ impl Inkpad {
                             format!("{:.0}%", music_volume * 100.0),
                         ),
                     ),
-                    muted(format!("Add your own tracks (mp3, ogg, flac, wav) in\n{}", self.music_dir.display())),
+                    muted(format!("Add your own tracks (mp3, ogg, flac, wav) in\n{}", self.music_dirs.user.display())),
                 ]
                 .spacing(8)
                 .into(),
@@ -713,8 +724,9 @@ impl Inkpad {
         let font = self.prefs.font.font();
         let menu_open = self.menu_open || self.dialog.is_some();
         let size = self.body_size();
-        let side_padding = size * SIDE_PADDING_EM;
-        let measure = size * CH_EM * MEASURE_CH;
+        let base = self.base_size();
+        let side_padding = base * SIDE_PADDING_EM;
+        let measure = base * CH_EM * MEASURE_CH;
 
         let editor = TextEditor::new(&self.content)
             .placeholder("Start writing…")

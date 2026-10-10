@@ -30,7 +30,9 @@ pub enum Music {
     Breeze,
     BinauralCalm,
     BinauralFocus,
-    /// A file in the music directory, by file name.
+    /// A track shipped with the app, by file name in the bundled music directory.
+    Bundled(String),
+    /// A file in the user's music directory, by file name.
     File(String),
 }
 
@@ -54,7 +56,9 @@ impl Music {
             Self::Breeze => "Swaying curtains".into(),
             Self::BinauralCalm => "Binaural calm, 10 Hz (headphones)".into(),
             Self::BinauralFocus => "Binaural focus, 15 Hz (headphones)".into(),
-            Self::File(name) => name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name).to_owned(),
+            Self::Bundled(name) | Self::File(name) => {
+                name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name).to_owned()
+            }
         }
     }
 
@@ -68,11 +72,15 @@ impl Music {
             Self::Breeze => "breeze".into(),
             Self::BinauralCalm => "binaural-calm".into(),
             Self::BinauralFocus => "binaural-focus".into(),
+            Self::Bundled(name) => format!("bundled:{name}"),
             Self::File(name) => format!("file:{name}"),
         }
     }
 
     pub fn from_key(key: &str) -> Self {
+        if let Some(name) = key.strip_prefix("bundled:") {
+            return Self::Bundled(name.to_owned());
+        }
         if let Some(name) = key.strip_prefix("file:") {
             return Self::File(name.to_owned());
         }
@@ -80,7 +88,7 @@ impl Music {
     }
 
     /// Build the source for this choice; `None` for `Off` or an unreadable file.
-    pub fn source(&self, music_dir: &Path) -> Option<Box<dyn Source>> {
+    pub fn source(&self, dirs: &MusicDirs) -> Option<Box<dyn Source>> {
         Some(match self {
             Self::Off => return None,
             Self::Rain => Box::new(Rain::new()),
@@ -89,9 +97,44 @@ impl Music {
             Self::Breeze => Box::new(Breeze::new()),
             Self::BinauralCalm => Box::new(Binaural::new(200.0, 10.0)),
             Self::BinauralFocus => Box::new(Binaural::new(220.0, 15.0)),
-            Self::File(name) => Box::new(FileSource::open(&music_dir.join(name))?),
+            Self::Bundled(name) => Box::new(FileSource::open(&dirs.bundled.as_ref()?.join(name))?),
+            Self::File(name) => Box::new(FileSource::open(&dirs.user.join(name))?),
         })
     }
+}
+
+/// Where tracks are looked up.
+#[derive(Debug, Clone)]
+pub struct MusicDirs {
+    /// Tracks shipped with the app, if found next to the executable or in the source tree.
+    pub bundled: Option<PathBuf>,
+    /// The user's own tracks.
+    pub user: PathBuf,
+}
+
+impl MusicDirs {
+    pub fn locate() -> Self {
+        Self { bundled: bundled_music_dir(), user: music_dir().unwrap_or_else(|| PathBuf::from("music")) }
+    }
+
+    /// All tracks for the picker: bundled first, then the user's.
+    pub fn choices(&self) -> Vec<Music> {
+        let mut out: Vec<Music> =
+            self.bundled.as_deref().map(scan_music_dir).unwrap_or_default().into_iter().map(Music::Bundled).collect();
+        out.extend(scan_music_dir(&self.user).into_iter().map(Music::File));
+        out
+    }
+}
+
+/// The bundled tracks: `../share/inkpad/music` relative to the executable (the AppImage
+/// layout), else `assets/music` in the source tree for development runs.
+fn bundled_music_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let candidates = [
+        exe.parent()?.join("../share/inkpad/music"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/music"),
+    ];
+    candidates.into_iter().find(|p| p.is_dir())
 }
 
 impl fmt::Display for Music {
@@ -685,9 +728,9 @@ mod tests {
     /// Every generator must produce a sane, finite signal at a modest level.
     #[test]
     fn generators_are_finite_and_moderate() {
-        let dir = PathBuf::from("/nonexistent");
+        let dirs = MusicDirs { bundled: None, user: PathBuf::from("/nonexistent") };
         for music in &Music::BUILT_IN[1..] {
-            let mut source = music.source(&dir).expect("built-in source");
+            let mut source = music.source(&dirs).expect("built-in source");
             let mut buf = vec![0f32; 2 * RATE as usize * 3];
             source.fill(&mut buf);
             let rms = (buf.iter().map(|s| s * s).sum::<f32>() / buf.len() as f32).sqrt();
@@ -734,5 +777,8 @@ mod tests {
         let file = Music::File("lofi.mp3".into());
         assert_eq!(Music::from_key(&file.key()), file);
         assert_eq!(file.label(), "lofi");
+        let bundled = Music::Bundled("Meditations.ogg".into());
+        assert_eq!(Music::from_key(&bundled.key()), bundled);
+        assert_eq!(bundled.label(), "Meditations");
     }
 }
