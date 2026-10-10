@@ -13,7 +13,7 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
          "$APPDIR/usr/share/icons/hicolor/scalable/apps"
 
 cp target/release/inkpad "$APPDIR/usr/bin/inkpad"
-ID=io.github.50hoursaweek.inkpad
+ID=io.github._50hoursaweek.inkpad
 cp "packaging/$ID.desktop" "$APPDIR/$ID.desktop"
 cp "packaging/$ID.desktop" "$APPDIR/usr/share/applications/$ID.desktop"
 mkdir -p "$APPDIR/usr/share/metainfo"

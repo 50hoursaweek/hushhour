@@ -1,8 +1,8 @@
 # Flatpak manifest. Build and install locally with:
-#   flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github.50hoursaweek.inkpad.yml
-app-id: io.github.50hoursaweek.inkpad
+#   flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github._50hoursaweek.inkpad.yml
+app-id: io.github._50hoursaweek.inkpad
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -26,14 +26,14 @@ modules:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --verbose
       - install -Dm755 target/release/inkpad /app/bin/inkpad
-      - install -Dm644 packaging/io.github.50hoursaweek.inkpad.desktop /app/share/applications/io.github.50hoursaweek.inkpad.desktop
-      - install -Dm644 packaging/io.github.50hoursaweek.inkpad.metainfo.xml /app/share/metainfo/io.github.50hoursaweek.inkpad.metainfo.xml
-      - install -Dm644 assets/inkpad-icon-4a.svg /app/share/icons/hicolor/scalable/apps/io.github.50hoursaweek.inkpad.svg
-      - install -Dm644 assets/icon-256.png /app/share/icons/hicolor/256x256/apps/io.github.50hoursaweek.inkpad.png
-      - install -Dm644 assets/icon-512.png /app/share/icons/hicolor/512x512/apps/io.github.50hoursaweek.inkpad.png
+      - install -Dm644 packaging/io.github._50hoursaweek.inkpad.desktop /app/share/applications/io.github._50hoursaweek.inkpad.desktop
+      - install -Dm644 packaging/io.github._50hoursaweek.inkpad.metainfo.xml /app/share/metainfo/io.github._50hoursaweek.inkpad.metainfo.xml
+      - install -Dm644 assets/inkpad-icon-4a.svg /app/share/icons/hicolor/scalable/apps/io.github._50hoursaweek.inkpad.svg
+      - install -Dm644 assets/icon-256.png /app/share/icons/hicolor/256x256/apps/io.github._50hoursaweek.inkpad.png
+      - install -Dm644 assets/icon-512.png /app/share/icons/hicolor/512x512/apps/io.github._50hoursaweek.inkpad.png
       - mkdir -p /app/share/inkpad/music && cp assets/music/*.* /app/share/inkpad/music/
     sources:
       - type: git
         url: https://github.com/50hoursaweek/inkpad.git
-        tag: v0.1.0
+        tag: v0.1.1
       - cargo-sources.json

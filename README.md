@@ -17,11 +17,11 @@ cargo run -- examples/sample.md
 To build the AppImage, put `appimagetool` on `PATH` (or point `APPIMAGETOOL` at it)
 and run `packaging/build-appimage.sh`; the result lands in `dist/`.
 
-To build and install the Flatpak (app id `io.github.50hoursaweek.inkpad`, as submitted
-to Flathub), with `org.flatpak.Builder` and the Freedesktop 24.08 SDK installed:
+To build and install the Flatpak (app id `io.github._50hoursaweek.inkpad`, as submitted
+to Flathub), with `org.flatpak.Builder` and the Freedesktop 26.08 SDK installed:
 
 ```sh
-flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github.50hoursaweek.inkpad.yml
+flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github._50hoursaweek.inkpad.yml
 ```
 
 `packaging/cargo-sources.json` lists every crate for the offline build; regenerate it

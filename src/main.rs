@@ -1271,7 +1271,7 @@ pub fn main() -> iced::Result {
         .window(window::Settings {
             icon: window::icon::from_file_data(include_bytes!("../assets/icon-256.png"), None).ok(),
             platform_specific: window::settings::PlatformSpecific {
-                application_id: "io.github.50hoursaweek.inkpad".to_owned(),
+                application_id: "io.github._50hoursaweek.inkpad".to_owned(),
                 ..window::settings::PlatformSpecific::default()
             },
             ..window::Settings::default()
