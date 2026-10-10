@@ -17,7 +17,7 @@ use iced::advanced::text::{LineHeight, Wrapping};
 use iced::keyboard::{self, Key, Modifiers};
 use iced::keyboard::key::Named;
 use iced::widget::{
-    button, column, container, scrollable, mouse_area, opaque, pick_list, row, rule, slider, space, stack, text, toggler,
+    button, center, column, container, scrollable, mouse_area, opaque, pick_list, row, rule, slider, space, stack, text, toggler,
 };
 use iced::window;
 
@@ -35,6 +35,7 @@ use stats::Stats;
 const APP_NAME: &str = "Inkpad";
 /// Incremented by build.rs on every build; see the About section of the menu.
 const BUILD: &str = env!("INKPAD_BUILD");
+const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 const DRAG_STRIP: f32 = 28.0;
 // Text column layout. The measure is set in characters so it scales with the font;
 // effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
@@ -52,6 +53,14 @@ const EDGE: f32 = 6.0;
 const CORNER_RADIUS: f32 = 12.0;
 const WINDOW_SIZE: (f32, f32) = (1100.0, 780.0);
 
+/// The dialogs reachable from the menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dialog {
+    Appearance,
+    Sound,
+    About,
+}
+
 struct Inkpad {
     content: text_editor::Content,
     /// Cached copy of the document, kept in sync after every edit.
@@ -65,6 +74,7 @@ struct Inkpad {
     /// Menu options for the music picker: the built-ins, then the files found in `music_dir`.
     music_options: Vec<Music>,
     menu_open: bool,
+    dialog: Option<Dialog>,
     fullscreen: bool,
     maximized: bool,
     window_width: f32,
@@ -106,6 +116,8 @@ enum Message {
     Maximized(bool),
     ToggleDecorations,
     ToggleMenu,
+    OpenDialog(Dialog),
+    /// Closes the menu and any dialog.
     CloseMenu,
     SetTheme(ThemeKind),
     SetFont(FontKind),
@@ -137,6 +149,7 @@ impl Inkpad {
             music_dir,
             music_options: Vec::new(),
             menu_open: false,
+            dialog: None,
             fullscreen: false,
             maximized: false,
             window_width: WINDOW_SIZE.0,
@@ -155,6 +168,9 @@ impl Inkpad {
             match arg.as_str() {
                 "--typewriter" => app.prefs.typewriter = true,
                 "--menu" => app.menu_open = true,
+                "--dialog=appearance" => app.dialog = Some(Dialog::Appearance),
+                "--dialog=sound" => app.dialog = Some(Dialog::Sound),
+                "--dialog=about" => app.dialog = Some(Dialog::About),
                 "--soundtest" => tasks.push(Task::done(Message::SoundTest)),
                 "--end" => tasks.push(Task::done(Message::CursorToEnd)),
                 "--selftest" => tasks.push(Task::done(Message::SelfTest)),
@@ -308,8 +324,17 @@ impl Inkpad {
                 self.sound.set_music_volume(self.prefs.music_volume);
                 self.save_prefs()
             }
+            Message::OpenDialog(dialog) => {
+                self.menu_open = false;
+                self.dialog = Some(dialog);
+                if dialog == Dialog::Sound {
+                    self.refresh_music_options();
+                }
+                Task::none()
+            }
             Message::CloseMenu => {
                 self.menu_open = false;
+                self.dialog = None;
                 Task::none()
             }
             Message::DragWindow => window::latest().and_then(window::drag),
@@ -366,7 +391,7 @@ impl Inkpad {
                 }
             },
             Message::KeyPressed(key, modifiers) => {
-                if self.menu_open && matches!(key, Key::Named(Named::Escape)) {
+                if (self.menu_open || self.dialog.is_some()) && matches!(key, Key::Named(Named::Escape)) {
                     return self.update(Message::CloseMenu);
                 }
                 match shortcut(&key, modifiers) {
@@ -523,54 +548,9 @@ impl Inkpad {
         };
     }
 
-    /// The menu: file actions and preferences in a card over the editor.
-    /// Clicking outside the card or pressing Escape closes it.
+    /// The menu: a drop-down under the ☰ button with file actions, entries that open
+    /// the settings dialogs, the writing and window sections, and About.
     fn menu(&self) -> Element<'_, Message> {
-        let muted = |s: String| {
-            text(s).size(12.0).style(|theme: &Theme| {
-                let p = theme.palette();
-                text::Style { color: Some(mix(p.text, p.background, 0.45)) }
-            })
-        };
-        let heading = |s: &'static str| {
-            text(s).size(11.0).style(|theme: &Theme| {
-                let p = theme.palette();
-                text::Style { color: Some(mix(p.text, p.background, 0.55)) }
-            })
-        };
-        let action = |label: &'static str, hint: &'static str, msg: Message| {
-            button(
-                row![text(label).size(13.0), space().width(Length::Fill), muted(hint.to_owned())]
-                    .align_y(iced::Alignment::Center),
-            )
-            .width(Length::Fill)
-            .padding(Padding::new(5.0).left(8.0).right(8.0))
-            .on_press(msg)
-            .style(|theme: &Theme, status| {
-                let p = theme.palette();
-                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                button::Style {
-                    background: hovered.then(|| Background::Color(mix(p.text, p.background, 0.9))),
-                    text_color: p.text,
-                    border: Border::default().rounded(4.0),
-                    ..button::Style::default()
-                }
-            })
-        };
-        let divider = || rule::horizontal(1).style(|theme: &Theme| {
-            let p = theme.palette();
-            rule::Style {
-                color: mix(p.text, p.background, 0.85),
-                radius: 0.0.into(),
-                fill_mode: rule::FillMode::Full,
-                snap: false,
-            }
-        });
-
-        let size = self.prefs.size;
-        let line_height = self.prefs.line_height;
-        let volume = self.prefs.sound_volume;
-        let music_volume = self.prefs.music_volume;
         let card = column![
             heading("FILE"),
             action("New", "Ctrl+N", Message::New),
@@ -578,27 +558,9 @@ impl Inkpad {
             action("Save", "Ctrl+S", Message::Save),
             action("Save As…", "Ctrl+Shift+S", Message::SaveAs),
             divider(),
-            heading("APPEARANCE"),
-            setting("Theme", pick(&ThemeKind::ALL, self.prefs.theme, Message::SetTheme)),
-            setting("Font", pick(&FontKind::ALL, self.prefs.font, Message::SetFont)),
-            setting(
-                "Size",
-                row![
-                    slider(MIN_SIZE..=MAX_SIZE, size, Message::SetSize).step(1.0_f32),
-                    muted(format!("{size:.0} pt")).width(44.0),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-            ),
-            setting(
-                "Line height",
-                row![
-                    slider(MIN_LINE_HEIGHT..=MAX_LINE_HEIGHT, line_height, Message::SetLineHeight).step(0.05_f32),
-                    muted(format!("{line_height:.2}")).width(44.0),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-            ),
+            heading("SETTINGS"),
+            action("Appearance…", "", Message::OpenDialog(Dialog::Appearance)),
+            action("Sound and music…", "", Message::OpenDialog(Dialog::Sound)),
             divider(),
             heading("WRITING"),
             setting("Focus", pick(&FocusMode::ALL, self.prefs.focus, Message::SetFocus)),
@@ -607,63 +569,21 @@ impl Inkpad {
                 toggler(self.prefs.typewriter).on_toggle(Message::SetTypewriter).size(18.0),
             ),
             divider(),
-            heading("SOUND"),
-            setting(
-                "Typing sound",
-                toggler(self.prefs.typing_sound).on_toggle(Message::SetTypingSound).size(18.0),
-            ),
-            setting("Sound", pick(&SoundSet::ALL, self.prefs.sound_set, Message::SetSoundSet)),
-            setting(
-                "Volume",
-                row![
-                    slider(0.0..=1.0, volume, Message::SetSoundVolume).step(0.05_f32),
-                    muted(format!("{:.0}%", volume * 100.0)).width(44.0),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-            ),
-            divider(),
-            heading("MUSIC"),
-            setting("Music", pick(&self.music_options, self.prefs.music.clone(), Message::SetMusic)),
-            setting(
-                "Volume",
-                row![
-                    slider(0.0..=1.0, music_volume, Message::SetMusicVolume).step(0.05_f32),
-                    muted(format!("{:.0}%", music_volume * 100.0)).width(44.0),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-            ),
-            muted(format!("Add your own tracks (mp3, ogg, flac, wav) in\n{}", self.music_dir.display())),
-            divider(),
             heading("WINDOW"),
             action("Fullscreen", "F11", Message::ToggleFullscreen),
             action("Toggle decorations", "Ctrl+Shift+D", Message::ToggleDecorations),
             action("Quit", "Ctrl+Q", Message::Quit),
             divider(),
-            heading("ABOUT"),
-            muted(format!("{APP_NAME} {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
+            action("About Inkpad…", "", Message::OpenDialog(Dialog::About)),
         ]
         .spacing(4)
-        .width(340.0);
+        .width(300.0);
 
         // Scroll when the card is taller than the window, so nothing is clipped.
         let card = container(scrollable(container(card).padding(Padding::new(0.0).right(8.0))))
             .max_height((self.window_height - DRAG_STRIP - 24.0).max(200.0))
             .padding(Padding::new(16.0).right(8.0))
-            .style(|theme: &Theme| {
-                let p = theme.palette();
-                container::Style {
-                    background: Some(Background::Color(p.background)),
-                    border: Border::default().rounded(10.0).width(1.0).color(mix(p.text, p.background, 0.8)),
-                    shadow: Shadow {
-                        color: Color { a: 0.25, ..Color::BLACK },
-                        offset: Vector::new(0.0, 6.0),
-                        blur_radius: 24.0,
-                    },
-                    ..container::Style::default()
-                }
-            });
+            .style(card_style);
 
         // The card hangs below the ☰ button; the backdrop swallows clicks so they
         // close the menu instead of reaching the editor.
@@ -672,6 +592,109 @@ impl Inkpad {
             .height(Length::Fill)
             .padding(Padding::new(0.0).top(DRAG_STRIP + 2.0).left(8.0));
         opaque(mouse_area(anchored).on_press(Message::CloseMenu))
+    }
+
+    /// A settings or about dialog, centred over the editor.
+    fn dialog(&self, dialog: Dialog) -> Element<'_, Message> {
+        let size = self.prefs.size;
+        let line_height = self.prefs.line_height;
+        let volume = self.prefs.sound_volume;
+        let music_volume = self.prefs.music_volume;
+
+        let (title, body): (&str, Element<'_, Message>) = match dialog {
+            Dialog::Appearance => (
+                "Appearance",
+                column![
+                    setting("Theme", pick(&ThemeKind::ALL, self.prefs.theme, Message::SetTheme)),
+                    setting("Font", pick(&FontKind::ALL, self.prefs.font, Message::SetFont)),
+                    setting(
+                        "Size",
+                        slider_row(
+                            slider(MIN_SIZE..=MAX_SIZE, size, Message::SetSize).step(1.0_f32),
+                            format!("{size:.0} pt"),
+                        ),
+                    ),
+                    setting(
+                        "Line height",
+                        slider_row(
+                            slider(MIN_LINE_HEIGHT..=MAX_LINE_HEIGHT, line_height, Message::SetLineHeight)
+                                .step(0.05_f32),
+                            format!("{line_height:.2}"),
+                        ),
+                    ),
+                ]
+                .spacing(8)
+                .into(),
+            ),
+            Dialog::Sound => (
+                "Sound and music",
+                column![
+                    heading("TYPING SOUND"),
+                    setting(
+                        "Enabled",
+                        toggler(self.prefs.typing_sound).on_toggle(Message::SetTypingSound).size(18.0),
+                    ),
+                    setting("Sound", pick(&SoundSet::ALL, self.prefs.sound_set, Message::SetSoundSet)),
+                    setting(
+                        "Volume",
+                        slider_row(
+                            slider(0.0..=1.0, volume, Message::SetSoundVolume).step(0.05_f32),
+                            format!("{:.0}%", volume * 100.0),
+                        ),
+                    ),
+                    divider(),
+                    heading("MUSIC"),
+                    setting("Music", pick(&self.music_options, self.prefs.music.clone(), Message::SetMusic)),
+                    setting(
+                        "Volume",
+                        slider_row(
+                            slider(0.0..=1.0, music_volume, Message::SetMusicVolume).step(0.05_f32),
+                            format!("{:.0}%", music_volume * 100.0),
+                        ),
+                    ),
+                    muted(format!("Add your own tracks (mp3, ogg, flac, wav) in\n{}", self.music_dir.display())),
+                ]
+                .spacing(8)
+                .into(),
+            ),
+            Dialog::About => (
+                "",
+                column![
+                    iced::widget::image(iced::widget::image::Handle::from_bytes(APP_ICON)).width(96.0).height(96.0),
+                    text(APP_NAME).size(20.0),
+                    muted(format!("Version {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
+                    muted("© 2026 Grunt".to_owned()),
+                ]
+                .spacing(6)
+                .align_x(iced::Alignment::Center)
+                .width(Length::Fill)
+                .into(),
+            ),
+        };
+
+        let done = button(text("Done").size(13.0))
+            .padding(Padding::new(5.0).left(14.0).right(14.0))
+            .on_press(Message::CloseMenu)
+            .style(|theme: &Theme, status| {
+                let p = theme.palette();
+                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: Some(Background::Color(mix(p.text, p.background, if hovered { 0.8 } else { 0.88 }))),
+                    text_color: p.text,
+                    border: Border::default().rounded(6.0),
+                    ..button::Style::default()
+                }
+            });
+        let mut card = column![].spacing(14).width(if dialog == Dialog::About { 260.0 } else { 380.0 });
+        if !title.is_empty() {
+            card = card.push(text(title).size(16.0));
+        }
+        let card = card
+            .push(body)
+            .push(row![space().width(Length::Fill), done].width(Length::Fill));
+        let card = container(card).padding(20).style(card_style);
+        // Clicking the backdrop closes the dialog, like the menu.
+        opaque(mouse_area(center(opaque(card))).on_press(Message::CloseMenu))
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -688,7 +711,7 @@ impl Inkpad {
 
     fn view(&self) -> Element<'_, Message> {
         let font = self.prefs.font.font();
-        let menu_open = self.menu_open;
+        let menu_open = self.menu_open || self.dialog.is_some();
         let size = self.body_size();
         let side_padding = size * SIDE_PADDING_EM;
         let measure = size * CH_EM * MEASURE_CH;
@@ -869,6 +892,9 @@ impl Inkpad {
         if self.menu_open {
             layout = layout.push(self.menu());
         }
+        if let Some(dialog) = self.dialog {
+            layout = layout.push(self.dialog(dialog));
+        }
 
         // The window itself is transparent; this container paints the rounded page.
         let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
@@ -882,6 +908,78 @@ impl Inkpad {
             })
             .into()
     }
+}
+
+/// Dimmed secondary text.
+fn muted<'a>(s: String) -> iced::widget::Text<'a> {
+    text(s).size(12.0).style(|theme: &Theme| {
+        let p = theme.palette();
+        text::Style { color: Some(mix(p.text, p.background, 0.45)) }
+    })
+}
+
+/// Small caps-style section heading.
+fn heading<'a>(s: &'static str) -> iced::widget::Text<'a> {
+    text(s).size(11.0).style(|theme: &Theme| {
+        let p = theme.palette();
+        text::Style { color: Some(mix(p.text, p.background, 0.55)) }
+    })
+}
+
+/// A full-width flat menu entry with an optional shortcut hint on the right.
+fn action<'a>(label: &'static str, hint: &'static str, msg: Message) -> Element<'a, Message> {
+    button(
+        row![text(label).size(13.0), space().width(Length::Fill), muted(hint.to_owned())]
+            .align_y(iced::Alignment::Center),
+    )
+    .width(Length::Fill)
+    .padding(Padding::new(5.0).left(8.0).right(8.0))
+    .on_press(msg)
+    .style(|theme: &Theme, status| {
+        let p = theme.palette();
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: hovered.then(|| Background::Color(mix(p.text, p.background, 0.9))),
+            text_color: p.text,
+            border: Border::default().rounded(4.0),
+            ..button::Style::default()
+        }
+    })
+    .into()
+}
+
+fn divider<'a>() -> Element<'a, Message> {
+    rule::horizontal(1)
+        .style(|theme: &Theme| {
+            let p = theme.palette();
+            rule::Style {
+                color: mix(p.text, p.background, 0.85),
+                radius: 0.0.into(),
+                fill_mode: rule::FillMode::Full,
+                snap: false,
+            }
+        })
+        .into()
+}
+
+/// The raised card used by the menu and the dialogs.
+fn card_style(theme: &Theme) -> container::Style {
+    let p = theme.palette();
+    container::Style {
+        background: Some(Background::Color(p.background)),
+        border: Border::default().rounded(10.0).width(1.0).color(mix(p.text, p.background, 0.8)),
+        shadow: Shadow {
+            color: Color { a: 0.25, ..Color::BLACK },
+            offset: Vector::new(0.0, 6.0),
+            blur_radius: 24.0,
+        },
+        ..container::Style::default()
+    }
+}
+
+/// A slider with its current value shown on the right.
+fn slider_row<'a>(control: iced::widget::Slider<'a, f32, Message>, label: String) -> Element<'a, Message> {
+    row![control, muted(label).width(44.0)].spacing(8).align_y(iced::Alignment::Center).into()
 }
 
 /// A labelled preference row in the menu.

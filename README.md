@@ -18,7 +18,7 @@ and run `packaging/build-appimage.sh`; the result lands in `dist/`.
 
 | Keys | Action |
 |---|---|
-| Ctrl+, | Open the menu (file actions and preferences); Esc or a click outside closes it |
+| Ctrl+, | Open the menu; Esc or a click outside closes it or any dialog |
 | Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+N | Open, save, save as, new |
 | Ctrl+D | Cycle focus mode: off, paragraph, sentence |
 | Ctrl+T | Toggle typewriter mode (caret line stays vertically centred) |
@@ -33,17 +33,18 @@ and run `packaging/build-appimage.sh`; the result lands in `dist/`.
 The window has no title bar. Drag the top strip or the status bar to move it,
 double-click the top strip to maximise, and use your compositor's resize
 gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
-The ☰ button in the top-left corner opens the menu.
+The ☰ button in the top-left corner opens the menu: file actions, then Appearance and
+Sound and music, which open dialogs, then the Writing and Window sections, then About.
 
 Preferences (theme, font, size, line height, focus mode, typewriter mode) are
 saved to `~/.config/inkpad/preferences` whenever they change.
 
-A key sound plays on every edit; the menu has a switch, a choice of four sound sets
-(soft keys, keyboard, typewriter, mechanical) and a volume slider for it.
+A key sound plays on every edit; the Sound and music dialog has a switch, a choice of four
+sound sets (soft keys, keyboard, typewriter, mechanical) and a volume slider for it.
 Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
 without it the editor is simply silent.
 
-Background music for focus lives in the menu's Music section: five generated
+Background music for focus lives in the Sound and music dialog: five generated
 soundscapes that never repeat (spring rain with an occasional gong, a night in
 Menorca with crickets, a train ride, curtains swaying in a breeze) and two binaural
 beats (10 Hz calm, 15 Hz focus; headphones needed), plus any tracks you put in
@@ -59,7 +60,7 @@ The menu's About section shows the version and a build number. `build.rs` increm
 `build-number` on every build that follows a source change, so a running copy can be
 matched to a build; the file is committed so numbers keep counting across machines.
 
-Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
+Debug flags: `--typewriter` starts with typewriter mode on, `--menu` starts with the menu open, `--dialog=appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Layout
