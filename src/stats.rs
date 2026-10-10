@@ -1,4 +1,4 @@
-//! Word, character and reading-time statistics, iA Writer style.
+//! Word, character and reading-time statistics for the status bar.
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Stats {
