@@ -107,12 +107,15 @@ impl fmt::Display for Music {
 }
 
 /// Where the user's own tracks live: `$XDG_DATA_HOME/hushhour/music`. A directory left
-/// from when the app was called Inkpad is used while the new one does not exist.
+/// from when the app was called Inkpad is renamed on first use, so the tracks come along.
 pub fn music_dir() -> Option<PathBuf> {
     let base = dirs::data_dir()?;
-    let new = base.join("hushhour").join("music");
-    let old = base.join("inkpad").join("music");
-    Some(if !new.is_dir() && old.is_dir() { old } else { new })
+    let new = base.join("hushhour");
+    let old = base.join("inkpad");
+    if !new.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, &new);
+    }
+    Some(new.join("music"))
 }
 
 /// File names of playable tracks in the music directory, sorted.

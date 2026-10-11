@@ -1,6 +1,6 @@
 [package]
 name = "hushhour"
-version = "0.2.1"
+version = "0.2.2"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
 repository = "https://github.com/50hoursaweek/hushhour"
@@ -11,6 +11,8 @@ members = ["core"]
 
 [dependencies]
 hushhour-core = { path = "core" }
+# Writes the PNG for `--screenshot=`; the same version iced already pulls in.
+image = "0.25"
 cosmic-text = "0.15"
 dirs = "6"
 iced = { version = "0.14", features = ["advanced", "tokio", "image"] }

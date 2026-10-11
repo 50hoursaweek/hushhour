@@ -122,6 +122,8 @@ struct HushHour {
     persist: bool,
     /// Where the recent list is written when persisting; `None` keeps it in memory only.
     recent_store: Option<PathBuf>,
+    /// Debug `--line=N`: where to put the caret once the file given on the command line is in.
+    line_after_load: Option<usize>,
     /// Byte limit for the document: `MAX_DOCUMENT_BYTES`, smaller in tests. Every growing
     /// edit is checked against it, so the document always stays reopenable.
     size_limit: u64,
@@ -177,6 +179,11 @@ enum Message {
     KeyPressed(Key, Modifiers),
     SelfTest,
     SoundTest,
+    /// Debug: capture the window into a PNG once it has settled, then quit.
+    Screenshot(PathBuf),
+    /// Debug: put the caret at the start of a line (after the file has loaded).
+    CursorToLine(usize),
+    ScreenshotTaken(PathBuf, window::Screenshot),
     CursorToEnd,
     DragWindow,
     ResizeWindow(window::Direction),
@@ -229,7 +236,12 @@ impl HushHour {
         }
         let mut tasks = vec![iced::widget::operation::focus_next()];
         if let Some(path) = app.apply_args(std::env::args_os().skip(1), &mut tasks) {
-            tasks.push(app.read(path));
+            let read = app.read(path);
+            // `--line=N` applies once the file is in, not to the empty document before it.
+            tasks.push(match app.line_after_load.take() {
+                Some(line) => read.chain(Task::done(Message::CursorToLine(line))),
+                None => read,
+            });
         }
         (app, Task::batch(tasks))
     }
@@ -252,6 +264,7 @@ impl HushHour {
             persist: true,
             recent_store: recent::path(),
             size_limit: MAX_DOCUMENT_BYTES,
+            line_after_load: None,
             pending_open: None,
             saving: false,
             sound: sound::Sound::start(music_dirs.clone()),
@@ -304,6 +317,13 @@ impl HushHour {
                     tasks.push(Task::done(Message::SoundTest));
                 }
                 Some("--end") => tasks.push(Task::done(Message::CursorToEnd)),
+                // Read in `main` before the window exists; accepted here so it is not "unknown".
+                Some(s) if s.starts_with("--size=") => {}
+                Some(s) if s.starts_with("--line=") => app.line_after_load = s["--line=".len()..].parse().ok(),
+                Some(s) if s.starts_with("--screenshot=") => {
+                    app.persist = false;
+                    tasks.push(Task::done(Message::Screenshot(PathBuf::from(&s["--screenshot=".len()..]))));
+                }
                 Some("--selftest") => {
                     app.persist = false;
                     tasks.push(Task::done(Message::SelfTest));
@@ -730,6 +750,27 @@ impl HushHour {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(700));
                 println!("SOUNDTEST DONE");
+                self.quit()
+            }
+            Message::CursorToLine(line) => {
+                let line = line.min(self.content.line_count().saturating_sub(1));
+                self.content.move_to(Cursor { position: Position { line, column: 0 }, selection: None });
+                self.refresh_focus();
+                Task::none()
+            }
+            Message::Screenshot(path) => {
+                // Let the first frames, the fonts and the opened file settle, then capture.
+                after(std::time::Duration::from_millis(1500)).then(move |_| {
+                    let path = path.clone();
+                    window::latest().and_then(window::screenshot).map(move |shot| Message::ScreenshotTaken(path.clone(), shot))
+                })
+            }
+            Message::ScreenshotTaken(path, shot) => {
+                let (w, h) = (shot.size.width, shot.size.height);
+                match image::save_buffer(&path, &shot.rgba, w, h, image::ColorType::Rgba8) {
+                    Ok(()) => println!("SCREENSHOT {} {w}x{h} scale {}", path.display(), shot.scale_factor),
+                    Err(e) => eprintln!("hushhour: could not write {}: {e}", path.display()),
+                }
                 self.quit()
             }
             Message::SelfTest => match self.selftest() {
@@ -1793,6 +1834,26 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
 /// Documents larger than this are refused rather than loaded into the editor.
 const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
 
+/// Resolves after `delay`, off the UI thread. Debug use only (screenshots).
+fn after(delay: std::time::Duration) -> Task<()> {
+    let (tx, rx) = iced::futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let _ = tx.send(());
+    });
+    Task::future(async move {
+        let _ = rx.await;
+    })
+}
+
+/// `--size=WxH` in logical pixels, for screenshots; read before the window is created.
+fn requested_size() -> Option<(f32, f32)> {
+    std::env::args().find_map(|a| {
+        let (w, h) = a.strip_prefix("--size=")?.split_once('x')?;
+        Some((w.parse().ok()?, h.parse().ok()?))
+    })
+}
+
 /// The shared history keeps its own caret type; the editor uses iced's. Same fields.
 fn core_pos(p: Position) -> history::Position {
     history::Position { line: p.line, column: p.column }
@@ -1879,6 +1940,7 @@ fn save_file(path: &Path, contents: &str) -> Result<(), String> {
 }
 
 pub fn main() -> iced::Result {
+    let size = requested_size().unwrap_or(WINDOW_SIZE);
     iced::application(HushHour::new, HushHour::update, HushHour::view)
         .title(HushHour::title)
         .theme(|app: &HushHour| app.prefs.theme.theme())
@@ -1911,7 +1973,7 @@ pub fn main() -> iced::Result {
             },
             ..window::Settings::default()
         })
-        .window_size(WINDOW_SIZE)
+        .window_size(size)
         .decorations(false)
         .transparent(true)
         .exit_on_close_request(false)
