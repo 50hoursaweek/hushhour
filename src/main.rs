@@ -39,7 +39,7 @@ const APP_NAME: &str = "Inkpad";
 const BUILD: &str = env!("INKPAD_BUILD");
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 const REPOSITORY: &str = "https://github.com/50hoursaweek/inkpad";
-/// The menu and dialogs use Lato Light; the editor keeps the iA Writer fonts.
+/// The menu and dialogs use Lato Light; the editor uses Plex Mono, Plex Sans and Literata.
 const UI_FONT: Font = Font {
     family: iced::font::Family::Name("Lato"),
     weight: iced::font::Weight::Light,
@@ -50,10 +50,8 @@ const DRAG_STRIP: f32 = 28.0;
 // Text column layout. The measure is set in characters of the window's base size
 // (not the zoomed size), so zooming reflows text inside a column whose margins
 // stay put; effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
-/// Maximum line length in characters (`ch`, the width of the `0` glyph) at the base size.
+/// Maximum line length in characters of running text at the base size.
 const MEASURE_CH: f32 = 66.0;
-/// Width of one `ch` in em for the bundled iA Writer fonts.
-const CH_EM: f32 = 0.6;
 /// Minimum horizontal padding on each side of the text, in em of the body size.
 const SIDE_PADDING_EM: f32 = 1.75;
 /// Body size steps with window width: points added to the preferred size at or above each width.
@@ -856,7 +854,7 @@ impl Inkpad {
         let size = self.body_size();
         let base = self.base_size();
         let side_padding = base * SIDE_PADDING_EM;
-        let measure = base * CH_EM * MEASURE_CH;
+        let measure = base * self.prefs.font.char_em() * MEASURE_CH;
 
         let editor = TextEditor::new(&self.content)
             .placeholder("Start writing…")
@@ -1252,19 +1250,19 @@ pub fn main() -> iced::Result {
             text_color: theme.palette().text,
         })
         .subscription(Inkpad::subscription)
-        .default_font(FontKind::Duo.font())
-        .font(include_bytes!("../assets/fonts/iAWriterDuoS-Regular.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterDuoS-Bold.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterDuoS-Italic.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterDuoS-BoldItalic.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterMonoS-Regular.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterMonoS-Bold.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterMonoS-Italic.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterMonoS-BoldItalic.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Regular.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Bold.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterQuattroS-Italic.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/iAWriterQuattroS-BoldItalic.ttf").as_slice())
+        .default_font(FontKind::Mono.font())
+        .font(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexSans-Bold.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexSans-Italic.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/IBMPlexSans-BoldItalic.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Literata-Regular.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Literata-Bold.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Literata-Italic.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Literata-BoldItalic.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/Lato-Light.ttf").as_slice())
         // Set first: the builder methods below extend these settings. The app id must
         // match the desktop file name so Wayland compositors can find the launcher icon.

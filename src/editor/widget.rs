@@ -322,7 +322,7 @@ where
     /// Sets the closure to produce key bindings on key presses.
     ///
     /// See [`Binding`] for the list of available bindings.
-    /// Keeps the line with the caret vertically centred (iA Writer's typewriter mode).
+    /// Keeps the line with the caret vertically centred (the anchor, or typewriter scrolling).
     pub fn typewriter(mut self, enabled: bool) -> Self {
         self.typewriter = enabled;
         self

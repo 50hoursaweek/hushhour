@@ -9,7 +9,7 @@ pub struct Stats {
     pub reading_seconds: u64,
 }
 
-/// Average silent reading speed used by iA Writer for its estimate.
+/// Average silent reading speed used for the estimate.
 const WORDS_PER_MINUTE: f64 = 200.0;
 
 pub fn compute(text: &str) -> Stats {

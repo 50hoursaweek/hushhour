@@ -22,35 +22,45 @@ pub const MAX_LINE_HEIGHT: f32 = 2.2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FontKind {
     #[default]
-    Duo,
     Mono,
-    Quattro,
+    Sans,
+    Serif,
 }
 
 impl FontKind {
-    pub const ALL: [Self; 3] = [Self::Duo, Self::Mono, Self::Quattro];
+    pub const ALL: [Self; 3] = [Self::Mono, Self::Sans, Self::Serif];
 
     pub fn family(self) -> &'static str {
         match self {
-            Self::Duo => "iA Writer Duo S",
-            Self::Mono => "iA Writer Mono S",
-            Self::Quattro => "iA Writer Quattro S",
+            Self::Mono => "IBM Plex Mono",
+            Self::Sans => "IBM Plex Sans",
+            Self::Serif => "Literata",
         }
     }
 
     pub fn next(self) -> Self {
         match self {
-            Self::Duo => Self::Mono,
-            Self::Mono => Self::Quattro,
-            Self::Quattro => Self::Duo,
+            Self::Mono => Self::Sans,
+            Self::Sans => Self::Serif,
+            Self::Serif => Self::Mono,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Duo => "Duo",
             Self::Mono => "Mono",
-            Self::Quattro => "Quattro",
+            Self::Sans => "Sans",
+            Self::Serif => "Serif",
+        }
+    }
+
+    /// Average width of a character of running text in em, measured from the
+    /// font files; the column is 66 of these wide.
+    pub fn char_em(self) -> f32 {
+        match self {
+            Self::Mono => 0.6,
+            Self::Sans => 0.5,
+            Self::Serif => 0.5,
         }
     }
 
@@ -125,7 +135,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             theme: ThemeKind::Light,
-            font: FontKind::Duo,
+            font: FontKind::Mono,
             size: 18.0,
             line_height: LINE_HEIGHT,
             focus: FocusMode::Off,
@@ -235,7 +245,7 @@ mod tests {
     fn round_trip() {
         let prefs = Preferences {
             theme: ThemeKind::Dark,
-            font: FontKind::Quattro,
+            font: FontKind::Serif,
             size: 21.0,
             line_height: 1.8,
             focus: FocusMode::Sentence,

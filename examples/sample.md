@@ -1,6 +1,6 @@
 # The Quiet Page
 
-Writing is thinking made visible. A good editor gets out of the way, and lets the **words** do the work. This paragraph has *emphasis*, `inline code`, and a [link to iA](https://ia.net).
+Writing is thinking made visible. A good editor gets out of the way, and lets the **words** do the work. This paragraph has *emphasis*, `inline code`, and a [link to the repo](https://github.com/50hoursaweek/inkpad).
 
 ## Why focus mode matters
 
@@ -16,7 +16,7 @@ Focus mode dims everything except the sentence or paragraph you are working on. 
 
 ```rust
 fn main() {
-    println!("code blocks use iA Writer Mono");
+    println!("code blocks use the mono face");
 }
 ```
 

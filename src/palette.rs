@@ -1,4 +1,4 @@
-//! Colour schemes modelled on iA Writer's Light, Dark and Sepia modes.
+//! Light, sepia and dark colour schemes for the page.
 
 use iced::theme::Palette;
 use iced::{Color, Theme};

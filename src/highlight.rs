@@ -13,7 +13,7 @@ use iced::{Font, Theme};
 
 use crate::palette::mix;
 
-pub const MONO_FAMILY: &str = "iA Writer Mono S";
+pub const MONO_FAMILY: &str = "IBM Plex Mono";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FocusMode {
@@ -64,7 +64,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            family: "iA Writer Duo S",
+            family: "IBM Plex Mono",
             focus: FocusMode::Off,
             paragraph: 0..1,
             cursor_line: 0,
