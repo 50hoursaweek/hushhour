@@ -9,7 +9,7 @@ const MAX: usize = 8;
 
 /// Where the list is stored for this user, if a config directory exists.
 pub fn path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("inkpad").join("recent"))
+    crate::prefs::config_dir().map(|d| d.join("recent"))
 }
 
 /// The list file is tiny; anything bigger is ignored rather than parsed.

@@ -14,11 +14,11 @@
 //! 1. Requests are sent from exactly two places, both on the event-loop thread while
 //!    the window is alive by construction. [`Frost::attach`] runs inside a `window::run`
 //!    closure, to which iced lends the live `&dyn Window` for the duration of the call.
-//!    [`Frost::apply`] and [`Frost::release`] run inside `Inkpad::update`.
+//!    [`Frost::apply`] and [`Frost::release`] run inside `HushHour::update`.
 //! 2. The window outlives every `update` call and every `window::run` closure: iced
 //!    destroys its windows only after the event loop has stopped, and the loop stops
 //!    only once an `iced::exit()` task has been processed.
-//! 3. `iced::exit()` is issued from one place, `Inkpad::quit`, which first calls
+//! 3. `iced::exit()` is issued from one place, `HushHour::quit`, which first calls
 //!    [`Frost::release`] and drops the handle. Every path that stops the loop goes
 //!    through it: Quit (clean, after "Don't save", or after a save), the compositor's
 //!    close request (`exit_on_close_request(false)` routes it there), and the

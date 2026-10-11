@@ -112,7 +112,7 @@ def generate(name, title, prompt, key, fmt, out_dir, model=MODEL):
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/50hoursaweek/inkpad",
-            "X-Title": "Inkpad",
+            "X-Title": "HushHour",
         },
     )
     chunks, text, usage = [], [], None

@@ -89,12 +89,12 @@ impl MusicDirs {
     }
 }
 
-/// The bundled tracks: `../share/inkpad/music` relative to the executable (the AppImage
+/// The bundled tracks: `../share/hushhour/music` relative to the executable (the AppImage
 /// layout), else `assets/music` in the source tree for development runs.
 fn bundled_music_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let candidates = [
-        exe.parent()?.join("../share/inkpad/music"),
+        exe.parent()?.join("../share/hushhour/music"),
         Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/music"),
     ];
     candidates.into_iter().find(|p| p.is_dir())
@@ -106,9 +106,13 @@ impl fmt::Display for Music {
     }
 }
 
-/// Where the user's own tracks live.
+/// Where the user's own tracks live: `$XDG_DATA_HOME/hushhour/music`. A directory left
+/// from when the app was called Inkpad is used while the new one does not exist.
 pub fn music_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("inkpad").join("music"))
+    let base = dirs::data_dir()?;
+    let new = base.join("hushhour").join("music");
+    let old = base.join("inkpad").join("music");
+    Some(if !new.is_dir() && old.is_dir() { old } else { new })
 }
 
 /// File names of playable tracks in the music directory, sorted.
@@ -721,7 +725,7 @@ impl FileSource {
         let failed_flag = worker_failed.clone();
         let path = path.to_owned();
         std::thread::Builder::new()
-            .name("inkpad-decode".into())
+            .name("hushhour-decode".into())
             .spawn(move || decode_worker(&path, tx, &worker_cancel, &failed_flag))
             .ok()?;
         Some(Self {
@@ -977,7 +981,7 @@ mod tests {
     /// A short file loops seamlessly and is resampled to the output rate.
     #[test]
     fn file_source_loops_and_resamples() {
-        let dir = std::env::temp_dir().join(format!("inkpad-music-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hushhour-music-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("tone.wav");
         // 0.5 s of a 220 Hz tone at half scale, as a minimal 16-bit mono WAV.
@@ -1024,7 +1028,7 @@ mod tests {
     /// cancel the thread), instead of reopening forever.
     #[test]
     fn empty_file_fails_and_a_dropped_source_cancels() {
-        let dir = std::env::temp_dir().join(format!("inkpad-music-empty-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hushhour-music-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("empty.wav");
         let mut bytes = Vec::new();

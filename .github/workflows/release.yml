@@ -25,7 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run the tests
         env:
-          INKPAD_BUILD: ci-${{ github.run_number }}
+          HUSHHOUR_BUILD: ci-${{ github.run_number }}
         run: cargo test --locked
 
   appimage:
@@ -56,11 +56,11 @@ jobs:
       - name: Build the AppImage
         env:
           # The About dialog shows this instead of the local build counter.
-          INKPAD_BUILD: ci-${{ github.run_number }}
+          HUSHHOUR_BUILD: ci-${{ github.run_number }}
         run: bash packaging/build-appimage.sh
       - name: Check the glibc requirement
         run: |
-          max=$(objdump -T target/release/inkpad | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
+          max=$(objdump -T target/release/hushhour | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
           echo "highest glibc symbol version: $max (supported maximum: GLIBC_2.35)"
           [ "$(printf '%s\n' "$max" GLIBC_2.35 | sort -V | tail -1)" = GLIBC_2.35 ] || { echo "binary needs a newer glibc than the baseline" >&2; exit 1; }
       # The self-test needs a display and a GPU, which the runner lacks; the glibc
@@ -72,5 +72,5 @@ jobs:
           TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
         run: |
           version=${TAG#v}
-          cp dist/Inkpad-x86_64.AppImage "Inkpad-${version}-x86_64.AppImage"
-          gh release upload "$TAG" "Inkpad-${version}-x86_64.AppImage" --clobber
+          cp dist/HushHour-x86_64.AppImage "HushHour-${version}-x86_64.AppImage"
+          gh release upload "$TAG" "HushHour-${version}-x86_64.AppImage" --clobber

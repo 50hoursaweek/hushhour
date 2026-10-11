@@ -153,10 +153,23 @@ impl Default for Preferences {
     }
 }
 
+/// The configuration directory, `$XDG_CONFIG_HOME/hushhour`. The app was called Inkpad
+/// until 0.2.0: an `inkpad` directory left from then is renamed on first use, so the
+/// settings and the recent-files list carry over.
+pub fn config_dir() -> Option<PathBuf> {
+    let base = dirs::config_dir()?;
+    let new = base.join("hushhour");
+    let old = base.join("inkpad");
+    if !new.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, &new);
+    }
+    Some(new)
+}
+
 impl Preferences {
-    /// `$XDG_CONFIG_HOME/inkpad/preferences`.
+    /// `$XDG_CONFIG_HOME/hushhour/preferences`.
     pub fn path() -> Option<PathBuf> {
-        dirs::config_dir().map(|d| d.join("inkpad").join("preferences"))
+        config_dir().map(|d| d.join("preferences"))
     }
 
     /// Read the preferences file, falling back to defaults for anything missing or malformed.

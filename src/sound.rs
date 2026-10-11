@@ -110,7 +110,7 @@ impl Sound {
     pub fn start(dirs: MusicDirs) -> Self {
         let (tx, rx) = mpsc::channel::<Command>();
         std::thread::Builder::new()
-            .name("inkpad-sound".into())
+            .name("hushhour-sound".into())
             .spawn(move || mixer(rx, dirs))
             .expect("spawn sound thread");
         Self { tx }

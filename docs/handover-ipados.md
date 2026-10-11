@@ -1,6 +1,9 @@
-# Inkpad on iPadOS: handover to the PMO agent
+# HushHour on iPadOS: handover to the PMO agent
 
-Written 2026-10-11 by Ink, the agent that owns the Linux hub (this repository), at `v0.1.6`.
+Written 2026-10-11 by Ink, the agent that owns the Linux hub (this repository), at `v0.1.6`;
+updated the same day for the rename: the product is **HushHour** (the name Inkpad was taken),
+icon `assets/hushhour-icon.svg`, app id `io.github._50hoursaweek.hushhour`. The GitHub
+repository keeps its old address until the user renames it.
 
 ## Ownership
 
@@ -14,12 +17,12 @@ Questions for Ink: message the session named `Ink` (cross-session SendMessage). 
 user: ask in PMO's own chat. Do not open pull requests against this repository; ask Ink instead,
 and Ink makes the change in the hub (for instance, extracting the shared core into a crate).
 
-Recommended home for the port: a **separate repository** (suggested `50hoursaweek/inkpad-ipados`),
+Recommended home for the port: a **separate repository** (suggested `50hoursaweek/hushhour-ipados`),
 so this repository's CI, Flatpak manifest and release workflow stay untouched. Vendor or
 git-subtree the shared Rust modules from a tagged release of this repository; do not fork the whole
 Linux app.
 
-## What Inkpad is
+## What HushHour is
 
 A quiet, distraction-free Markdown editor. Read `README.md` first (features, shortcuts, licences),
 then `src/prefs.rs` (every user setting and its default) and the scripted self-test in
@@ -81,7 +84,7 @@ apps share one source.
   provenance). Use them unmodified; do not generate instances (OFL Reserved Font Names).
 - Sounds: `assets/sounds/{soft,keyboard}` CC0 by unicaegames, credit in `assets/sounds/README.md`.
 - Music: `assets/music/*.ogg` CC0 by the author (Lyria-generated). Convert to AAC/CAF for iPad.
-- Icon: `assets/inkpad-icon-4a.svg` (plus `icon-256.png`, `icon-512.png`).
+- Icon: `assets/hushhour-icon.svg` (plus `icon-256.png`, `icon-512.png`).
 - **Never** use the old Envato-licensed recordings or any synthesised keystroke sounds that were
   rejected; they are not in the repository and must not come back.
 - Never commit API keys; the user's OpenRouter key lives outside any repository.
@@ -93,14 +96,14 @@ apps share one source.
    (or use uniffi as a build dependency); `cargo-lipo` is not needed with modern Xcode (xcframework).
 3. `gh` CLI authenticated as 50hoursaweek; `git clone https://github.com/50hoursaweek/inkpad -b v0.1.6`
    for reference only.
-4. A new repository for the port, folders like `~/Projects/inkpad-ipados/{InkpadCore (Rust), Inkpad (Xcode)}`.
+4. A new repository for the port, folders like `~/Projects/hushhour-ipados/{HushHourCore (Rust), HushHour (Xcode)}`.
 5. Apple Developer account for TestFlight and the App Store: the user's decision; ask before
    spending anything.
 
 ## Open decisions for the user (PMO to ask in its chat)
 
-- App name on the App Store ("Inkpad" may be taken), bundle id (suggest `io.github._50hoursaweek.inkpad`
-  mirrored as `com.50hoursaweek.inkpad`), price.
+- App name on the App Store ("HushHour" may be taken), bundle id (suggest `io.github._50hoursaweek.hushhour`
+  mirrored as `com.50hoursaweek.hushhour`), price.
 - iCloud Drive sync of documents (recommended: yes, via the document picker / `UIDocument`).
 - Whether the iPad gets the frosted-glass setting (vibrancy is cheap on iPadOS).
 - Keyboard-only vs. touch-first dialogs.

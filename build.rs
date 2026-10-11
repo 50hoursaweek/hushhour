@@ -3,20 +3,20 @@
 //! `build-number` in the project root is read, incremented and written back
 //! each time the crate is rebuilt because something under `src` or `assets`
 //! changed, so a running copy can always be matched to a build. For
-//! reproducible builds (Flathub, CI) set `INKPAD_BUILD` in the environment: it
+//! reproducible builds (Flathub, CI) set `HUSHHOUR_BUILD` in the environment: it
 //! is embedded as is and the file is left alone.
 
 use std::fs;
 use std::path::Path;
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=INKPAD_BUILD");
+    println!("cargo:rerun-if-env-changed=HUSHHOUR_BUILD");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=assets");
     println!("cargo:rerun-if-changed=Cargo.toml");
 
-    if let Ok(fixed) = std::env::var("INKPAD_BUILD") {
-        println!("cargo:rustc-env=INKPAD_BUILD={fixed}");
+    if let Ok(fixed) = std::env::var("HUSHHOUR_BUILD") {
+        println!("cargo:rustc-env=HUSHHOUR_BUILD={fixed}");
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -29,5 +29,5 @@ fn main() {
         Ok(()) => next,
         Err(_) => current,
     };
-    println!("cargo:rustc-env=INKPAD_BUILD={embedded}");
+    println!("cargo:rustc-env=HUSHHOUR_BUILD={embedded}");
 }

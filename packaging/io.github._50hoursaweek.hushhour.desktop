@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Inkpad
+Name=HushHour
 Comment=A quiet Markdown editor
-Exec=inkpad %f
-Icon=io.github._50hoursaweek.inkpad
+Exec=hushhour %f
+Icon=io.github._50hoursaweek.hushhour
 Terminal=false
 Categories=Office;TextEditor;
 MimeType=text/markdown;text/plain;
 Keywords=markdown;writing;editor;focus;
-StartupWMClass=io.github._50hoursaweek.inkpad
+StartupWMClass=io.github._50hoursaweek.hushhour

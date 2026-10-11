@@ -1,6 +1,6 @@
 [package]
-name = "inkpad"
-version = "0.1.6"
+name = "hushhour"
+version = "0.2.0"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
 repository = "https://github.com/50hoursaweek/inkpad"
