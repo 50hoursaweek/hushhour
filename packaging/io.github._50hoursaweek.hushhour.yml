@@ -43,6 +43,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/50hoursaweek/hushhour.git
-        tag: v0.2.1
-        commit: d788b442c6c473f2f7c812492014cb6103c40a50
+        tag: v0.2.2
+        commit: 1607492ac43f86caea2185fd7b1a583ecc1e51ae
       - cargo-sources.json
