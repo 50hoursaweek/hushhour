@@ -3,7 +3,7 @@
 Written 2026-10-11 by Ink, the agent that owns the Linux hub (this repository), at `v0.1.6`;
 updated the same day for the rename: the product is **HushHour** (the name Inkpad was taken),
 icon `assets/hushhour-icon.svg`, app id `io.github._50hoursaweek.hushhour`. The GitHub
-repository keeps its old address until the user renames it.
+repository is now https://github.com/50hoursaweek/hushhour (the old address redirects).
 
 ## Ownership
 
@@ -94,7 +94,7 @@ apps share one source.
 1. Xcode with the iOS/iPadOS SDK and simulators; `xcode-select --install`.
 2. `rustup` with targets `aarch64-apple-ios` and `aarch64-apple-ios-sim`; `cargo install uniffi-bindgen-cli`
    (or use uniffi as a build dependency); `cargo-lipo` is not needed with modern Xcode (xcframework).
-3. `gh` CLI authenticated as 50hoursaweek; `git clone https://github.com/50hoursaweek/inkpad -b v0.1.6`
+3. `gh` CLI authenticated as 50hoursaweek; `git clone https://github.com/50hoursaweek/hushhour -b v0.1.6`
    for reference only.
 4. A new repository for the port, folders like `~/Projects/hushhour-ipados/{HushHourCore (Rust), HushHour (Xcode)}`.
 5. Apple Developer account for TestFlight and the App Store: the user's decision; ask before
@@ -110,7 +110,7 @@ apps share one source.
 
 ## Where to look
 
-- Releases and the current Linux build: https://github.com/50hoursaweek/inkpad/releases (v0.1.6).
+- Releases and the current Linux build: https://github.com/50hoursaweek/hushhour/releases (v0.1.6).
 - Flathub metadata and screenshots: `packaging/`.
 - Review history and lessons (data-safety rules the port must keep): ask Ink; the review files
   are not in the repository.

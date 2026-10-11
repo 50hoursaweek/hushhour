@@ -40,7 +40,7 @@ const APP_NAME: &str = "HushHour";
 /// Incremented by build.rs on every build; see the About section of the menu.
 const BUILD: &str = env!("HUSHHOUR_BUILD");
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
-const REPOSITORY: &str = "https://github.com/50hoursaweek/inkpad";
+const REPOSITORY: &str = "https://github.com/50hoursaweek/hushhour";
 /// The menu and dialogs use Lato Light; the editor uses Plex Mono, Plex Sans and Literata.
 const UI_FONT: Font = Font {
     family: iced::font::Family::Name("Lato"),

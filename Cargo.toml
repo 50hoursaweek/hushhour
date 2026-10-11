@@ -3,7 +3,7 @@ name = "hushhour"
 version = "0.2.0"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
-repository = "https://github.com/50hoursaweek/inkpad"
+repository = "https://github.com/50hoursaweek/hushhour"
 edition = "2024"
 
 [dependencies]

@@ -111,7 +111,7 @@ def generate(name, title, prompt, key, fmt, out_dir, model=MODEL):
         headers={
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/50hoursaweek/inkpad",
+            "HTTP-Referer": "https://github.com/50hoursaweek/hushhour",
             "X-Title": "HushHour",
         },
     )

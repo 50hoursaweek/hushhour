@@ -1,6 +1,6 @@
 # The Quiet Page
 
-Writing is thinking made visible. A good editor gets out of the way, and lets the **words** do the work. This paragraph has *emphasis*, `inline code`, and a [link to the repo](https://github.com/50hoursaweek/inkpad).
+Writing is thinking made visible. A good editor gets out of the way, and lets the **words** do the work. This paragraph has *emphasis*, `inline code`, and a [link to the repo](https://github.com/50hoursaweek/hushhour).
 
 ## Why the spotlight matters
 
