@@ -43,6 +43,6 @@ modules:
     sources:
       - type: git
         url: https://github.com/50hoursaweek/inkpad.git
-        tag: v0.1.3
-        commit: c2e594a13d63ea6c9f1b4fb97df1dcfafb3316d5
+        tag: v0.1.4
+        commit: d23fe8023bc39a2e2e9005d5f04e6568880d56b2
       - cargo-sources.json
