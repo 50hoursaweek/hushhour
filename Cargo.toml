@@ -1,6 +1,6 @@
 [package]
 name = "inkpad"
-version = "0.1.1"
+version = "0.1.2"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
 repository = "https://github.com/50hoursaweek/inkpad"
