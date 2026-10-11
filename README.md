@@ -57,35 +57,16 @@ Preferences (theme, font, size, line height, spotlight, anchor) are
 saved to `~/.config/inkpad/preferences` whenever they change; the last eight files opened
 or saved are listed in the menu and kept in `~/.config/inkpad/recent`.
 
-A key sound plays on every edit; the Sound and music dialog has a switch, a choice of two
-sound sets (soft and keyboard, both cut from a CC0 recording pack, with slight pitch and
-level variation per press; Enter and Backspace sound different) and a volume slider.
-Sound needs `libasound` (ALSA) at run time, which PipeWire and PulseAudio desktops provide;
-without it the editor is simply silent.
+Typing sounds (two sets) and background music live in the Sound and music dialog: six
+bundled loops, five generated soundscapes, or your own tracks dropped in
+`~/.local/share/inkpad/music`. The app starts silent. Sound needs the system ALSA library,
+which PipeWire and PulseAudio desktops provide.
 
-Background music lives in the Sound and music dialog: six bundled loops (Nylon strings,
-Late cafe, Wordless, Low strings, Lofi desk, Slow horizon; see Credits), five generated
-soundscapes that never repeat (a Focus drone on a low chord that breathes and drifts,
-Rainfall with an occasional gong, Cricket night, Night train, Open window), plus any tracks
-you put in `~/.local/share/inkpad/music` (mp3, ogg, flac or wav; they loop). Everything in
-`assets/music` ships inside the AppImage.
-Switching cross-fades over 1.5 s, and the music has its own volume. The app always
-starts silent; the volume is remembered, the track is not.
+Frosted glass (Appearance dialog) makes the page translucent; on KDE Plasma the desktop
+behind is blurred as well.
 
-Frosted glass (Appearance dialog) makes the page translucent, with the transparency
-adjustable. Where the compositor can blur behind windows (KDE Plasma, through KWin's
-blur and contrast protocols) the thickness slider also controls how heavily the
-desktop behind is frosted; on COSMIC and GNOME only the transparency applies.
-
-The text column is 66 characters wide at most and centred, with at least 1.75 em of
-padding on each side, both measured at the window's base size (18 px, stepping to 20
-and 22 px at 900 and 1400 px of window width) so the column fills more of a large
-screen. The size preference and Ctrl+= / Ctrl+- zoom the text inside that column, so
-the margins stay put and the text reflows.
-
-The menu's About section shows the version and a build number. `build.rs` increments
-`build-number` on every build that follows a source change, so a running copy can be
-matched to a build; the file is committed so numbers keep counting across machines.
+The text column is at most 66 characters wide and centred; zooming reflows the text and
+keeps the margins. The About dialog shows the version and build number.
 
 Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
