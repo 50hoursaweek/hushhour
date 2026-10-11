@@ -8,24 +8,42 @@
 //!
 //! # Safety invariant
 //!
-//! The display and surface belong to winit; this module borrows them. Their use
-//! is safe because of the following, which `main.rs` upholds:
+//! The display and surface belong to winit; this module borrows them. Using them is
+//! sound because of the following, which `main.rs` upholds:
 //!
-//! 1. Every request sent through a [`Frost`] (`attach`, `apply`, `release`) runs
-//!    inside the application's `update()`.
-//! 2. The window exists for the whole of every `update()` call: iced destroys
-//!    windows only after the event loop has stopped.
-//! 3. The loop stops only through `iced::exit()`, which the application issues
-//!    solely from its single `quit()` path after calling [`Frost::release`] and
-//!    dropping the handle; a compositor close request is intercepted
-//!    (`exit_on_close_request(false)`) and routed into that same path.
-//! 4. Once quitting has begun, a late attachment result is released and dropped,
-//!    so nothing is sent during or after shutdown.
-//! 5. The guest event queue is never destroyed (`ManuallyDrop`): it holds a
-//!    `Connection` clone pointing at a `Backend` made from the foreign display,
-//!    which does not own the display. The only destructor side effect this avoids
-//!    is `wl_event_queue_destroy`, which must not run after winit disconnects.
-//!    Cost: one queue object per process.
+//! 1. Requests are sent from exactly two places, both on the event-loop thread while
+//!    the window is alive by construction. [`Frost::attach`] runs inside a `window::run`
+//!    closure, to which iced lends the live `&dyn Window` for the duration of the call.
+//!    [`Frost::apply`] and [`Frost::release`] run inside `Inkpad::update`.
+//! 2. The window outlives every `update` call and every `window::run` closure: iced
+//!    destroys its windows only after the event loop has stopped, and the loop stops
+//!    only once an `iced::exit()` task has been processed.
+//! 3. `iced::exit()` is issued from one place, `Inkpad::quit`, which first calls
+//!    [`Frost::release`] and drops the handle. Every path that stops the loop goes
+//!    through it: Quit (clean, after "Don't save", or after a save), the compositor's
+//!    close request (`exit_on_close_request(false)` routes it there), and the
+//!    `--soundtest` and `--selftest` diagnostic runs. The self-test's failure path is
+//!    the one deliberate exception: it calls `process::exit(1)`, which terminates the
+//!    process without unwinding or running any destructor, so neither winit's nor this
+//!    module's cleanup runs and no ordering question arises.
+//! 4. Messages can still be delivered after `quit` has run and before the loop has
+//!    actually stopped. A `FrostAttached` arriving then is released and dropped inside
+//!    that `update`, so its release requests, like every other request, go out while
+//!    the display is still connected. Nothing is sent once the loop has stopped.
+//! 5. The guest event queue is wrapped in `ManuallyDrop` and never destroyed. It holds a
+//!    `Connection` clone of a backend built from the foreign display, so leaking it keeps
+//!    that backend alive for the rest of the process. Retained: the `wl_event_queue`, the
+//!    backend's bookkeeping, and the client-side proxies it knows about (the registry,
+//!    the bound blur and contrast managers, and any blur or contrast object not yet
+//!    released). Avoided: wayland-backend's `ConnectionState::drop`, which would destroy
+//!    those proxies and the queue, and must not run after winit has disconnected the
+//!    display. The backend does not own the display, so `wl_display_disconnect` is never
+//!    at stake. The blur and contrast objects themselves are released by protocol in
+//!    `release`, so the compositor side is cleaned up before exit; the managers and the
+//!    registry live until the connection closes with the process.
+//!
+//! This is a runtime invariant, documented and checked by inspection and by the
+//! headless quit tests in `main.rs`; it is not a type-level guarantee.
 
 use std::fmt;
 use std::sync::{Arc, Mutex};

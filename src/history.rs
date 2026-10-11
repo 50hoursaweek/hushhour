@@ -8,7 +8,10 @@ use iced::advanced::text::editor::Position;
 const COALESCE_WINDOW: Duration = Duration::from_millis(1500);
 /// Undo steps kept; the oldest are dropped beyond this so history cannot grow without bound.
 const MAX_STEPS: usize = 2000;
-/// Bytes of removed+inserted text kept across all steps, for the same reason.
+/// Bytes of removed+inserted text kept across all steps, for the same reason. The newest
+/// step is always kept, so the total may exceed this by that one step, which is itself
+/// bounded by the document size limit (a step holds at most one removed and one inserted
+/// document's worth of text).
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
@@ -21,14 +24,27 @@ pub struct Delta {
     pub cursor_after: Position,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct History {
     undo: Vec<Delta>,
     redo: Vec<Delta>,
     last_push: Option<Instant>,
+    max_steps: usize,
+    max_bytes: usize,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self { undo: Vec::new(), redo: Vec::new(), last_push: None, max_steps: MAX_STEPS, max_bytes: MAX_BYTES }
+    }
 }
 
 impl History {
+    #[cfg(test)]
+    fn with_limits(max_steps: usize, max_bytes: usize) -> Self {
+        Self { max_steps, max_bytes, ..Self::default() }
+    }
+
     /// End the current typing group, so the next edit starts a new undo step.
     /// Called after a save, so undo never jumps across the saved revision.
     pub fn end_group(&mut self) {
@@ -56,6 +72,7 @@ impl History {
             {
                 prev.inserted.push_str(&inserted);
                 prev.cursor_after = after;
+                self.trim();
                 return true;
             }
             // Backspace: grow the previous deletion backwards.
@@ -63,12 +80,14 @@ impl History {
                 prev.offset = offset;
                 prev.removed.insert_str(0, &removed);
                 prev.cursor_after = after;
+                self.trim();
                 return true;
             }
             // Delete: grow the previous deletion forwards.
             if prev.inserted.is_empty() && inserted.is_empty() && offset == prev.offset {
                 prev.removed.push_str(&removed);
                 prev.cursor_after = after;
+                self.trim();
                 return true;
             }
         }
@@ -78,11 +97,13 @@ impl History {
         true
     }
 
-    /// Drop the oldest steps once the history is too long or holds too much text.
+    /// Drop the oldest steps once the history is too long or holds too much text. Runs
+    /// after every mutation, a coalesced one included, so the budget holds while a step
+    /// grows as well as when one is added. The newest step is never dropped.
     fn trim(&mut self) {
         let mut bytes: usize = self.undo.iter().map(|d| d.removed.len() + d.inserted.len()).sum();
         let mut drop = 0;
-        while self.undo.len() - drop > MAX_STEPS || (bytes > MAX_BYTES && self.undo.len() - drop > 1) {
+        while self.undo.len() - drop > self.max_steps || (bytes > self.max_bytes && self.undo.len() - drop > 1) {
             bytes -= self.undo[drop].removed.len() + self.undo[drop].inserted.len();
             drop += 1;
         }
@@ -215,6 +236,39 @@ mod tests {
         h.record("ab", "a", p(0, 2), p(0, 1));
         let d = h.undo().unwrap();
         assert_eq!((d.offset, d.removed.as_str()), (1, "bc"));
+    }
+
+    /// Verification V06: the budget holds while a step grows by coalescing, not only when
+    /// a step is pushed; and the step limit holds as steps are pushed.
+    #[test]
+    fn coalescing_respects_the_byte_budget() {
+        let mut h = History::with_limits(10, 8);
+        assert!(h.record("", "abcd", p(0, 0), p(0, 4)));
+        h.end_group();
+        assert!(h.record("abcd", "abcdefgh", p(0, 4), p(0, 8)));
+        assert_eq!(h.undo.len(), 2, "eight bytes: at the budget, nothing dropped");
+        // Typing one more letter coalesces into the newest step and pushes the total over.
+        assert!(h.record("abcdefgh", "abcdefghi", p(0, 8), p(0, 9)));
+        assert_eq!(h.undo.len(), 1, "the oldest step goes once the budget is exceeded");
+        assert_eq!(h.undo[0].inserted, "efghi");
+        // Growing a deletion is bounded the same way.
+        let mut h = History::with_limits(10, 3);
+        assert!(h.record("", "ab", p(0, 0), p(0, 2)));
+        h.end_group();
+        assert!(h.record("abcdef", "abcde", p(0, 6), p(0, 5)));
+        assert!(h.record("abcde", "abcd", p(0, 5), p(0, 4)));
+        assert_eq!(h.undo.len(), 1);
+        assert_eq!(h.undo[0].removed, "ef");
+        // The step count is capped as steps are added.
+        let mut h = History::with_limits(2, 1000);
+        let mut text = String::new();
+        for c in ['a', 'b', 'c', 'd', 'e'] {
+            let next = format!("{text}{c}");
+            assert!(h.record(&text, &next, p(0, text.len()), p(0, next.len())));
+            h.end_group();
+            text = next;
+        }
+        assert_eq!(h.undo.len(), 2);
     }
 
     #[test]

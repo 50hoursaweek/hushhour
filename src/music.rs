@@ -674,6 +674,11 @@ const FILE_GAIN: f32 = 0.25;
 const CHUNK_FRAMES: usize = 4096;
 /// Chunks the decoder may run ahead; bounds memory and keeps a track switch quick.
 const CHUNK_QUEUE: usize = 8;
+/// Decoded frames the mixer keeps ready on its side of the channel. Chunks are received
+/// only while fewer than this are pending, so the channel's bound stays the decoder's
+/// bound and the mixer never holds more than this plus one chunk. It covers over 40 ms of
+/// output for any source rate up to 192 kHz, many times one 5 ms mixer block.
+const PENDING_FRAMES: usize = 2 * CHUNK_FRAMES;
 /// Consecutive undecodable packets before a file is given up on (not reset by looping).
 const MAX_DECODE_ERRORS: usize = 100;
 /// Passes over the file that yield no audio at all before it is given up on.
@@ -694,6 +699,8 @@ enum Decoded {
 pub struct FileSource {
     rx: std::sync::mpsc::Receiver<Decoded>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Set by the worker when it gives up, so failure is seen even behind queued frames.
+    worker_failed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Source frames per output frame; `None` until the decoder has probed the file.
     rate: Option<f32>,
     /// Decoded, interleaved stereo at the file's rate, waiting to be resampled.
@@ -709,13 +716,24 @@ impl FileSource {
     pub fn open(path: &Path) -> Option<Self> {
         let (tx, rx) = std::sync::mpsc::sync_channel::<Decoded>(CHUNK_QUEUE);
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_failed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let worker_cancel = cancel.clone();
+        let failed_flag = worker_failed.clone();
         let path = path.to_owned();
         std::thread::Builder::new()
             .name("inkpad-decode".into())
-            .spawn(move || decode_worker(&path, tx, &worker_cancel))
+            .spawn(move || decode_worker(&path, tx, &worker_cancel, &failed_flag))
             .ok()?;
-        Some(Self { rx, cancel, rate: None, pending: VecDeque::new(), position: 0.0, last: [0.0; 2], failed: false })
+        Some(Self {
+            rx,
+            cancel,
+            worker_failed,
+            rate: None,
+            pending: VecDeque::new(),
+            position: 0.0,
+            last: [0.0; 2],
+            failed: false,
+        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -743,16 +761,31 @@ impl FileSource {
         Some((reader, decoder, track_id, channels, sample_rate))
     }
 
-    /// Take everything the decoder has ready, without waiting for it. The queue is
-    /// bounded, so this is at most a few chunks; draining it fully means a `Failed`
-    /// behind buffered frames is seen at once.
+    /// Take what the decoder has ready, without waiting for it and without hoarding it.
+    /// Chunks are received only while fewer than `PENDING_FRAMES` are pending, so the
+    /// bounded channel keeps throttling the decoder however fast it runs, and at most
+    /// `CHUNK_QUEUE + 1` messages are taken per call even if the decoder refills the
+    /// channel meanwhile. Failure is signalled through a flag as well as the channel, so
+    /// it is seen at once even when frames are queued ahead of it.
     fn pull(&mut self) {
-        while !self.failed {
+        if self.failed {
+            return;
+        }
+        if self.worker_failed.load(std::sync::atomic::Ordering::Relaxed) {
+            self.fail();
+            return;
+        }
+        let mut received = 0;
+        while self.pending.len() < PENDING_FRAMES && received <= CHUNK_QUEUE {
+            received += 1;
             match self.rx.try_recv() {
                 Ok(Decoded::Opened { sample_rate }) => self.rate = Some(sample_rate as f32 / SR),
                 Ok(Decoded::Frames(chunk)) => self.pending.extend(chunk),
-                Ok(Decoded::Failed) | Err(std::sync::mpsc::TryRecvError::Disconnected) => self.fail(),
-                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Ok(Decoded::Failed) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.fail();
+                    return;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
             }
         }
     }
@@ -774,9 +807,20 @@ impl Drop for FileSource {
 /// Decode `path` over and over (the track loops), sending chunks until cancelled
 /// or until the file proves unusable. Every packet and every pass checks the
 /// cancellation flag, and a pass that produces no audio counts towards giving up.
-fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>, cancel: &std::sync::atomic::AtomicBool) {
+/// Giving up raises `failed` before the `Failed` message, so the mixer learns of it
+/// without first consuming whatever frames are still queued.
+fn decode_worker(
+    path: &Path,
+    tx: std::sync::mpsc::SyncSender<Decoded>,
+    cancel: &std::sync::atomic::AtomicBool,
+    failed: &std::sync::atomic::AtomicBool,
+) {
     use std::sync::atomic::Ordering;
     let cancelled = || cancel.load(Ordering::Relaxed);
+    let give_up = || {
+        failed.store(true, Ordering::Relaxed);
+        let _ = tx.send(Decoded::Failed);
+    };
     let mut chunk: Vec<[f32; 2]> = Vec::with_capacity(CHUNK_FRAMES);
     let mut buf: Option<SampleBuffer<f32>> = None;
     let mut errors = 0usize;
@@ -787,7 +831,7 @@ fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>, cancel: 
             return;
         }
         let Some((mut reader, mut decoder, track_id, channels, sample_rate)) = FileSource::open_streams(path) else {
-            let _ = tx.send(Decoded::Failed);
+            give_up();
             return;
         };
         if !announced {
@@ -818,7 +862,7 @@ fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>, cancel: 
                 Err(_) => {
                     errors += 1;
                     if errors > MAX_DECODE_ERRORS {
-                        let _ = tx.send(Decoded::Failed);
+                        give_up();
                         return;
                     }
                     continue;
@@ -852,7 +896,7 @@ fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>, cancel: 
             // An empty or broken file: do not spin on it.
             empty_passes += 1;
             if empty_passes >= MAX_EMPTY_PASSES {
-                let _ = tx.send(Decoded::Failed);
+                give_up();
                 return;
             }
         } else {
@@ -1016,19 +1060,27 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Audit F07: failure discards buffered frames and the source finishes at once.
-    #[test]
-    fn failure_discards_pending_frames_and_finishes() {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Decoded>(4);
-        let mut source = FileSource {
+    /// A source fed by a test channel instead of a decoder thread.
+    fn fed_source(capacity: usize) -> (std::sync::mpsc::SyncSender<Decoded>, FileSource) {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Decoded>(capacity);
+        let source = FileSource {
             rx,
             cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            worker_failed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             rate: Some(1.0),
             pending: VecDeque::new(),
             position: 0.0,
             last: [0.0; 2],
             failed: false,
         };
+        (tx, source)
+    }
+
+    /// Audit F07: failure discards buffered frames and the source finishes at once,
+    /// whether it arrives through the channel or, behind queued frames, through the flag.
+    #[test]
+    fn failure_discards_pending_frames_and_finishes() {
+        let (tx, mut source) = fed_source(4);
         tx.send(Decoded::Frames(vec![[0.5, 0.5]; 100])).unwrap();
         tx.send(Decoded::Failed).unwrap();
         let mut out = vec![0f32; 2 * 50];
@@ -1036,6 +1088,61 @@ mod tests {
         assert!(source.finished());
         assert!(source.pending.is_empty());
         assert!(out.iter().all(|s| *s == 0.0));
+
+        // Frames queued well past what one pull takes, then the worker gives up: the flag
+        // makes the failure visible on the next block, not after the queue has drained.
+        let (tx, mut source) = fed_source(16);
+        for _ in 0..16 {
+            tx.send(Decoded::Frames(vec![[0.5, 0.5]; CHUNK_FRAMES])).unwrap();
+        }
+        source.fill(&mut out);
+        assert!(!source.finished());
+        source.worker_failed.store(true, std::sync::atomic::Ordering::Relaxed);
+        source.fill(&mut out);
+        assert!(source.finished());
+        assert!(source.pending.is_empty());
+        assert!(out.iter().all(|s| *s == 0.0));
+    }
+
+    /// Verification V02: a decoder that runs ahead cannot make the mixer hoard audio.
+    /// One fill takes a bounded number of chunks and leaves the rest in the channel, and
+    /// under a producer that never sleeps the pending frames stay under the stated bound
+    /// while audio keeps flowing.
+    #[test]
+    fn pending_frames_stay_bounded_under_a_fast_decoder() {
+        // Deterministic half: a full channel, no producer.
+        let (tx, mut source) = fed_source(64);
+        for _ in 0..64 {
+            tx.send(Decoded::Frames(vec![[0.1, 0.1]; CHUNK_FRAMES])).unwrap();
+        }
+        let mut out = vec![0f32; 2 * 220];
+        source.fill(&mut out);
+        // Two chunks were received; one block was played (the interpolator holds one frame back).
+        assert!((PENDING_FRAMES - 220..=PENDING_FRAMES).contains(&source.pending.len()), "pending {}", source.pending.len());
+        // Exactly two slots were freed: the channel is still throttling.
+        assert!(tx.try_send(Decoded::Frames(Vec::new())).is_ok());
+        assert!(tx.try_send(Decoded::Frames(Vec::new())).is_ok());
+        assert!(matches!(tx.try_send(Decoded::Frames(Vec::new())), Err(std::sync::mpsc::TrySendError::Full(_))));
+
+        // Racing half: the producer refills the channel as fast as it can.
+        let (tx, mut source) = fed_source(CHUNK_QUEUE);
+        let producer = std::thread::spawn(move || {
+            while tx.send(Decoded::Frames(vec![[0.1, 0.1]; CHUNK_FRAMES])).is_ok() {}
+        });
+        let mut max_pending = 0;
+        for _ in 0..500 {
+            source.fill(&mut out);
+            max_pending = max_pending.max(source.pending.len());
+            assert!(
+                source.pending.len() <= PENDING_FRAMES + CHUNK_FRAMES,
+                "pending {} exceeds the bound",
+                source.pending.len()
+            );
+        }
+        assert!(max_pending >= PENDING_FRAMES - 220, "the mixer did keep audio ready");
+        assert!(out.iter().all(|s| (s - 0.1 * FILE_GAIN).abs() < 1e-6), "audio kept flowing");
+        drop(source);
+        producer.join().unwrap();
     }
 
     #[test]

@@ -13,7 +13,7 @@ mod recent;
 mod sound;
 mod stats;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use iced::advanced::text::editor::{Cursor, Edit, Motion};
@@ -90,6 +90,15 @@ enum Pending {
     Replace,
 }
 
+/// What a "Don't save" answer permits: one Open request may replace one exact revision
+/// of the document. An edit in between makes the permission void.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Authorisation {
+    request: u64,
+    generation: u64,
+    edits: u64,
+}
+
 struct Inkpad {
     content: text_editor::Content,
     /// Cached copy of the document, kept in sync after every edit.
@@ -106,12 +115,16 @@ struct Inkpad {
     /// Each Open or read gets an id; only the latest outstanding one may replace the document.
     next_request: u64,
     open_request: Option<u64>,
-    /// Set by "Don't save" for an Open: the request whose result may replace the document.
-    replace_authorised: Option<u64>,
+    /// Set by "Don't save" for an Open: the request whose result may replace the document,
+    /// and the revision the user agreed to lose. Any edit in between revokes it.
+    replace_authorised: Option<Authorisation>,
     /// Set once quitting has begun: late results and attachments are then ignored.
     quitting: bool,
-    /// False in tests, so no preferences file is written.
+    /// False in tests and diagnostic runs: nothing is written under the config directory,
+    /// neither preferences nor the recent list.
     persist: bool,
+    /// Where the recent list is written when persisting; `None` keeps it in memory only.
+    recent_store: Option<PathBuf>,
     /// A file that finished loading while the document had new changes; waits for an answer.
     pending_open: Option<(PathBuf, Arc<String>)>,
     /// True while a write is in flight; a second Save waits for it.
@@ -237,6 +250,7 @@ impl Inkpad {
             replace_authorised: None,
             quitting: false,
             persist: true,
+            recent_store: recent::path(),
             pending_open: None,
             saving: false,
             sound: sound::Sound::start(music_dirs.clone()),
@@ -283,9 +297,16 @@ impl Inkpad {
                 Some("--dialog=about") => app.dialog = Some(Dialog::About),
                 Some("--dialog=welcome") => app.dialog = Some(Dialog::Welcome),
                 Some("--dialog=unsaved") => app.dialog = Some(Dialog::Unsaved(Pending::Quit)),
-                Some("--soundtest") => tasks.push(Task::done(Message::SoundTest)),
+                // Diagnostic runs leave the configuration directory untouched.
+                Some("--soundtest") => {
+                    app.persist = false;
+                    tasks.push(Task::done(Message::SoundTest));
+                }
                 Some("--end") => tasks.push(Task::done(Message::CursorToEnd)),
-                Some("--selftest") => tasks.push(Task::done(Message::SelfTest)),
+                Some("--selftest") => {
+                    app.persist = false;
+                    tasks.push(Task::done(Message::SelfTest));
+                }
                 Some(other) => {
                     eprintln!("inkpad: unknown option {other}");
                     std::process::exit(2);
@@ -332,7 +353,7 @@ impl Inkpad {
             Message::Edit(action) => {
                 // A paste that would take the document past the size limit is refused.
                 if let text_editor::Action::Edit(Edit::Paste(pasted)) = &action
-                    && (self.text.len() + pasted.len()) as u64 > MAX_DOCUMENT_BYTES
+                    && !paste_fits(self.text.len(), self.selected_bytes(), pasted.len())
                 {
                     self.notice = Some(format!("Paste refused: the document would exceed {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
                     return Task::none();
@@ -403,7 +424,11 @@ impl Inkpad {
                 // For an Open, the request started below is the one allowed to replace it.
                 let task = self.proceed(pending);
                 if matches!(pending, Pending::Open | Pending::OpenRecent) {
-                    self.replace_authorised = self.open_request;
+                    // The permission names the request and the revision it was given for:
+                    // an edit made while the chooser or the read is pending revokes it.
+                    self.replace_authorised = self
+                        .open_request
+                        .map(|request| Authorisation { request, generation: self.generation, edits: self.edits });
                 }
                 task
             }
@@ -427,7 +452,7 @@ impl Inkpad {
                     Ok(loaded) => loaded,
                     Err(e) => {
                         // Cancelled or unreadable: this request's permission dies with it.
-                        if self.replace_authorised == Some(request) {
+                        if self.replace_authorised.is_some_and(|a| a.request == request) {
                             self.replace_authorised = None;
                         }
                         if !e.is_empty() {
@@ -436,9 +461,13 @@ impl Inkpad {
                         return Task::none();
                     }
                 };
-                let authorised = self.replace_authorised.take() == Some(request);
+                let authorised = self
+                    .replace_authorised
+                    .take()
+                    .is_some_and(|a| a.request == request && a.generation == self.generation && a.edits == self.edits);
                 if self.dirty && !authorised {
-                    // Edited since the request was made: ask again rather than replace silently.
+                    // Edited since "Don't save" was answered (or never asked): ask again rather
+                    // than replace silently. The loaded text waits for the answer.
                     self.pending_open = Some((path, text));
                     return self.ask_unsaved(Pending::Replace);
                 }
@@ -461,6 +490,8 @@ impl Inkpad {
                     return Task::none();
                 }
                 self.saving = true;
+                // As for Save: edits made while the chooser is open start a new undo step.
+                self.history.end_group();
                 let generation = self.generation;
                 let text = Arc::new(self.content.text());
                 let written = text.clone();
@@ -475,14 +506,17 @@ impl Inkpad {
                 }
                 match result {
                     Ok(path) => {
-                        if let Err(e) = recent::push(&mut self.recent, &path) {
-                    self.notice = Some(e);
-                }
+                        let recent_error = self.remember(&path);
                         self.path = Some(path);
                         self.saved_text = text;
                         self.history.end_group();
                         self.update_dirty();
-                        self.notice = Some(if self.dirty { "Saved (edited since)".to_owned() } else { "Saved".to_owned() });
+                        let saved = if self.dirty { "Saved (edited since)" } else { "Saved" };
+                        // A recent-list failure is shown alongside the result, never instead of it.
+                        self.notice = Some(match recent_error {
+                            Some(e) => format!("{saved}. {e}"),
+                            None => saved.to_owned(),
+                        });
                         match self.after_save.take() {
                             // Typed while the chooser was open: the new text is not saved, ask again.
                             Some(pending) if self.dirty => self.ask_unsaved(pending),
@@ -687,15 +721,17 @@ impl Inkpad {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(700));
                 println!("SOUNDTEST DONE");
-                iced::exit()
+                self.quit()
             }
             Message::SelfTest => match self.selftest() {
                 Ok(()) => {
                     println!("SELFTEST PASS");
-                    iced::exit()
+                    self.quit()
                 }
                 Err(e) => {
                     println!("SELFTEST FAIL: {e}");
+                    // Ends the process at once, without unwinding or running any destructor:
+                    // no Wayland object is touched on this path (see the frost invariant).
                     std::process::exit(1)
                 }
             },
@@ -720,7 +756,10 @@ impl Inkpad {
     }
 
     /// The one way out: release the compositor effects, persist the settings, stop.
-    /// Every exit, clean or after the dialog, comes through here.
+    /// Every exit that stops the event loop comes through here: Quit (clean or after the
+    /// dialog), the close button, and the diagnostic runs. The self-test's failure path
+    /// is the deliberate exception: `process::exit(1)` terminates without running any
+    /// destructor, so no Wayland object is touched at all (see `frost.rs`).
     fn quit(&mut self) -> Task<Message> {
         if !self.quitting {
             self.quitting = true;
@@ -803,10 +842,24 @@ impl Inkpad {
     /// Replace the document with a loaded file.
     fn replace_with(&mut self, path: PathBuf, text: &str) {
         self.load(text.replace("\r\n", "\n"));
-        if let Err(e) = recent::push(&mut self.recent, &path) {
-                    self.notice = Some(e);
-                }
+        self.notice = self.remember(&path);
         self.path = Some(path);
+    }
+
+    /// Put `path` at the front of the recent list and, when persisting, write the list.
+    /// Returns the notice to show if the write failed; the menu is updated either way.
+    fn remember(&mut self, path: &Path) -> Option<String> {
+        recent::remember(&mut self.recent, path);
+        if !self.persist {
+            return None;
+        }
+        let store = self.recent_store.as_deref()?;
+        recent::save_to(store, &self.recent).err()
+    }
+
+    /// Bytes of the current selection, which a paste replaces.
+    fn selected_bytes(&self) -> usize {
+        self.content.selection().map_or(0, |s| s.len())
     }
 
     /// Dirty means the text differs from what was last loaded or saved, so undoing back
@@ -1715,6 +1768,13 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
 /// Documents larger than this are refused rather than loaded into the editor.
 const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
 
+/// Whether replacing `selected` bytes of a `current`-byte document with `pasted` bytes
+/// keeps the document within [`MAX_DOCUMENT_BYTES`]. Overflow counts as too big.
+fn paste_fits(current: usize, selected: usize, pasted: usize) -> bool {
+    let kept = current.saturating_sub(selected) as u64;
+    kept.checked_add(pasted as u64).is_some_and(|total| total <= MAX_DOCUMENT_BYTES)
+}
+
 /// An empty error means the chooser was cancelled; nothing to report.
 async fn open_dialog() -> Result<(PathBuf, Arc<String>), String> {
     let handle = rfd::AsyncFileDialog::new()
@@ -1727,21 +1787,28 @@ async fn open_dialog() -> Result<(PathBuf, Arc<String>), String> {
 
 async fn read_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let too_large = || format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024);
+    // Looked at by name first, so a FIFO or a device is refused without opening it
+    // (opening a FIFO for reading blocks until something writes to it).
     let meta = std::fs::metadata(&path).map_err(|e| format!("Cannot open {name}: {e}"))?;
     if !meta.is_file() {
         return Err(format!("Cannot open {name}: not a regular file"));
     }
-    if meta.len() > MAX_DOCUMENT_BYTES {
-        return Err(format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
-    }
-    // Read through a bounded reader from the opened handle: the size check above is
-    // advisory only, a file can grow or be replaced between the two.
     use std::io::Read;
     let file = std::fs::File::open(&path).map_err(|e| format!("Cannot open {name}: {e}"))?;
+    // Then judged again on the opened handle, so what was checked is what is read.
+    let meta = file.metadata().map_err(|e| format!("Cannot open {name}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("Cannot open {name}: not a regular file"));
+    }
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(too_large());
+    }
+    // The size is advisory only (a file can grow after the check); the read itself is bounded.
     let mut bytes = Vec::new();
     file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes).map_err(|e| format!("Cannot open {name}: {e}"))?;
     if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
-        return Err(format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
+        return Err(too_large());
     }
     let text = String::from_utf8(bytes).map_err(|_| format!("Cannot open {name}: not UTF-8 text"))?;
     Ok((path, Arc::new(text)))
@@ -1816,13 +1883,26 @@ mod tests {
         let dirs = MusicDirs { bundled: None, user: std::env::temp_dir().join("inkpad-tests-music") };
         let mut app = Inkpad::fresh(prefs, Vec::new(), dirs);
         app.persist = false;
+        app.recent_store = None;
         app
     }
 
     fn type_text(app: &mut Inkpad, s: &str) {
         for c in s.chars() {
-            let _ = app.update(Message::Edit(text_editor::Action::Edit(Edit::Insert(c))));
+            let edit = if c == '\n' { Edit::Enter } else { Edit::Insert(c) };
+            let _ = app.update(Message::Edit(text_editor::Action::Edit(edit)));
         }
+    }
+
+    fn saved(app: &Inkpad, path: &Path) -> Message {
+        Message::Saved { generation: app.generation, text: Arc::new(app.content.text()), result: Ok(path.to_owned()) }
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("inkpad-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     fn loaded(request: u64, name: &str, text: &str) -> Message {
@@ -1938,5 +2018,145 @@ mod tests {
         type_text(&mut a, "cd");
         let _ = a.update(Message::Undo);
         assert_eq!(a.content.text(), "ab");
+    }
+
+    /// Verification V05: Save As (and so Save on an untitled document) ends the typing
+    /// group too, so edits made while the chooser is open undo separately.
+    #[test]
+    fn typing_during_a_save_as_starts_a_new_undo_step() {
+        let mut a = app();
+        type_text(&mut a, "ab");
+        let _ = a.update(Message::SaveAs); // chooser open (in flight)
+        assert!(a.saving);
+        type_text(&mut a, "cd");
+        let _ = a.update(Message::Undo);
+        assert_eq!(a.content.text(), "ab");
+        let mut b = app();
+        type_text(&mut b, "ab");
+        let _ = b.update(Message::Save); // untitled: goes through Save As
+        type_text(&mut b, "cd");
+        let _ = b.update(Message::Undo);
+        assert_eq!(b.content.text(), "ab");
+    }
+
+    /// Verification V01: "Don't save" covers the revision it was answered for. An edit
+    /// made while the chooser or the read is still pending revokes it, and the loaded
+    /// file waits behind a new question instead of replacing the newer text.
+    #[test]
+    fn edits_after_discard_revoke_the_replacement() {
+        let mut a = app();
+        type_text(&mut a, "A");
+        let _ = a.update(Message::Open);
+        assert_eq!(a.dialog, Some(Dialog::Unsaved(Pending::Open)));
+        let _ = a.update(Message::Discard(Pending::Open));
+        let request = a.open_request.unwrap();
+        type_text(&mut a, "B");
+        let _ = a.update(loaded(request, "c.md", "C"));
+        assert_eq!(a.content.text(), "AB", "the newer text must survive");
+        assert!(a.dirty);
+        assert_eq!(a.dialog, Some(Dialog::Unsaved(Pending::Replace)));
+        assert!(a.replace_authorised.is_none(), "the stale permission is consumed, not kept");
+        // Answering the new question completes the replacement.
+        let _ = a.update(Message::Discard(Pending::Replace));
+        assert_eq!(a.content.text(), "C");
+        assert!(!a.dirty);
+
+        // Same through the recent-files path, where the read starts at once.
+        let mut b = app();
+        type_text(&mut b, "A");
+        let _ = b.update(Message::OpenRecent(PathBuf::from("/nonexistent/c.md")));
+        let _ = b.update(Message::Discard(Pending::OpenRecent));
+        let request = b.open_request.unwrap();
+        type_text(&mut b, "B");
+        let _ = b.update(loaded(request, "c.md", "C"));
+        assert_eq!(b.content.text(), "AB");
+        assert_eq!(b.dialog, Some(Dialog::Unsaved(Pending::Replace)));
+        // Cancelling keeps the text and drops the loaded file.
+        let _ = b.update(Message::CloseMenu);
+        assert_eq!(b.content.text(), "AB");
+        assert!(b.pending_open.is_none());
+    }
+
+    /// V01 complement: with no edit in between, the authorised load replaces the text
+    /// once, without a second question.
+    #[test]
+    fn discard_without_further_edits_replaces_once() {
+        let mut a = app();
+        type_text(&mut a, "A");
+        let _ = a.update(Message::Open);
+        let _ = a.update(Message::Discard(Pending::Open));
+        let request = a.open_request.unwrap();
+        let _ = a.update(loaded(request, "c.md", "C"));
+        assert_eq!(a.content.text(), "C");
+        assert_eq!(a.dialog, None);
+        assert!(!a.dirty);
+        assert!(a.replace_authorised.is_none());
+    }
+
+    /// Verification V03: a non-persisting app never writes the recent list, even when it
+    /// has a store; a persisting one writes to its own store only.
+    #[test]
+    fn recent_list_is_written_only_when_persisting() {
+        let dir = temp_dir("recent");
+        let store = dir.join("recent");
+        let doc = dir.join("doc.md");
+        std::fs::write(&doc, "x").unwrap();
+
+        let mut a = app();
+        a.recent_store = Some(store.clone());
+        let msg = saved(&a, &doc);
+        let _ = a.update(msg);
+        assert_eq!(a.recent.len(), 1, "the menu is updated in memory");
+        assert!(!store.exists(), "persist = false must not touch the file system");
+
+        let mut b = app();
+        b.persist = true;
+        b.recent_store = Some(store.clone());
+        let msg = saved(&b, &doc);
+        let _ = b.update(msg);
+        assert_eq!(b.notice.as_deref(), Some("Saved"));
+        let expected = std::fs::canonicalize(&doc).unwrap();
+        assert_eq!(recent::load_from(&store), vec![expected]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Verification V04: when the save succeeds but the recent list cannot be written,
+    /// the notice says both; the save result is not hidden.
+    #[test]
+    fn save_notice_keeps_the_recent_list_error() {
+        let mut a = app();
+        a.persist = true;
+        a.recent_store = Some(PathBuf::from("/nonexistent/dir/recent"));
+        let msg = saved(&a, Path::new("/nonexistent/x.md"));
+        let _ = a.update(msg);
+        let notice = a.notice.clone().unwrap();
+        assert!(notice.starts_with("Saved. "), "{notice}");
+        assert!(notice.contains("recent files"), "{notice}");
+        assert!(!a.dirty);
+        assert_eq!(a.recent, vec![PathBuf::from("/nonexistent/x.md")]);
+    }
+
+    /// Verification V07: the paste limit counts what the paste replaces, and the
+    /// selected byte count comes from the editor, multibyte and multiline included.
+    #[test]
+    fn paste_limit_accounts_for_the_selection() {
+        let limit = MAX_DOCUMENT_BYTES as usize;
+        assert!(paste_fits(limit, limit, limit), "replacing a full document with one of equal size");
+        assert!(paste_fits(limit - 10, 0, 10));
+        assert!(!paste_fits(limit - 9, 0, 10));
+        assert!(paste_fits(100, 60, limit - 40));
+        assert!(!paste_fits(100, 60, limit - 39));
+        assert!(!paste_fits(usize::MAX, 0, usize::MAX), "no overflow");
+
+        let mut a = app();
+        let text = "héllo\nwörld";
+        type_text(&mut a, text);
+        assert_eq!(a.content.text(), text);
+        assert_eq!(a.selected_bytes(), 0);
+        let _ = a.update(Message::Edit(text_editor::Action::SelectAll));
+        assert_eq!(a.selected_bytes(), text.len());
+        let _ = a.update(Message::Edit(text_editor::Action::Move(Motion::DocumentStart)));
+        let _ = a.update(Message::Edit(text_editor::Action::SelectWord));
+        assert_eq!(a.selected_bytes(), "héllo".len());
     }
 }
