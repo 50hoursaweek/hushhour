@@ -107,8 +107,8 @@ pub struct MarkdownHighlighter {
     settings: Settings,
     current_line: usize,
     in_fence: Option<Fence>,
-    /// The fence state at the start of each line seen so far, so highlighting can
-    /// resume from any line with the right state.
+    /// `line_states[n]` is the fence state after line n, so highlighting can resume
+    /// at any line with the state its predecessor left.
     line_states: Vec<Option<Fence>>,
 }
 
@@ -140,7 +140,7 @@ impl Highlighter for MarkdownHighlighter {
         let index = self.current_line;
         self.current_line += 1;
 
-        // `line_states[n]` is the state before line n; the state after is pushed below.
+        // The state after this line is recorded below as `line_states[index]`.
         if self.line_states.len() < index {
             self.line_states.resize(index, None);
         }
@@ -350,20 +350,15 @@ fn inline(line: &str, start: usize, spans: &mut Vec<(Range<usize>, Kind)>) {
         (false, false) => Kind::Text,
     };
 
-    // Once a closing delimiter is known to be absent after some position, later
-    // searches for it are skipped: this keeps a line of repeated `[` or `` ` `` linear.
-    let mut no_backtick_from = usize::MAX;
-    let mut no_rbracket_from = usize::MAX;
-    let mut no_rparen_from = usize::MAX;
-    let find = |needle: u8, from: usize, none_from: &mut usize| -> Option<usize> {
-        if from >= *none_from {
-            return None;
-        }
-        let found = find_byte(b, needle, from);
-        if found.is_none() {
-            *none_from = from;
-        }
-        found
+    // Positions of the next closing delimiter from every index, computed once per
+    // line by a backward pass, so every lookup is O(1) and the scan is linear whether
+    // or not closers exist.
+    let next_backtick = next_positions(b, b'`');
+    let next_rbracket = next_positions(b, b']');
+    let next_rparen = next_positions(b, b')');
+    let at = |table: &[u32], from: usize| -> Option<usize> {
+        let i = *table.get(from)?;
+        (i != u32::MAX).then_some(i as usize)
     };
 
     while i < len {
@@ -371,7 +366,7 @@ fn inline(line: &str, start: usize, spans: &mut Vec<(Range<usize>, Kind)>) {
 
         // Code span
         if c == b'`' {
-            if let Some(j) = find(b'`', i + 1, &mut no_backtick_from) {
+            if let Some(j) = at(&next_backtick, i + 1) {
                 spans.push((i..i + 1, Kind::Marker));
                 spans.push((i + 1..j, Kind::Code));
                 spans.push((j..j + 1, Kind::Marker));
@@ -399,9 +394,9 @@ fn inline(line: &str, start: usize, spans: &mut Vec<(Range<usize>, Kind)>) {
         // Links and images: [text](url) / ![alt](url)
         let link_start = if c == b'!' && i + 1 < len && b[i + 1] == b'[' { Some(i + 1) } else if c == b'[' { Some(i) } else { None };
         if let Some(lb) = link_start {
-            if let Some(rb) = find(b']', lb + 1, &mut no_rbracket_from) {
+            if let Some(rb) = at(&next_rbracket, lb + 1) {
                 if rb + 1 < len && b[rb + 1] == b'(' {
-                    if let Some(rp) = find(b')', rb + 2, &mut no_rparen_from) {
+                    if let Some(rp) = at(&next_rparen, rb + 2) {
                         spans.push((i..lb + 1, Kind::Marker));
                         spans.push((lb + 1..rb, Kind::Link));
                         spans.push((rb..rb + 2, Kind::Marker));
@@ -424,8 +419,17 @@ fn inline(line: &str, start: usize, spans: &mut Vec<(Range<usize>, Kind)>) {
     }
 }
 
-fn find_byte(b: &[u8], needle: u8, from: usize) -> Option<usize> {
-    b[from.min(b.len())..].iter().position(|&x| x == needle).map(|p| p + from)
+/// `table[i]` is the index of the first `needle` at or after `i`, or `u32::MAX`.
+fn next_positions(b: &[u8], needle: u8) -> Vec<u32> {
+    let mut table = vec![u32::MAX; b.len() + 1];
+    let mut next = u32::MAX;
+    for i in (0..b.len()).rev() {
+        if b[i] == needle {
+            next = i as u32;
+        }
+        table[i] = next;
+    }
+    table
 }
 
 fn at_word_boundary(b: &[u8], i: usize) -> bool {
@@ -510,13 +514,24 @@ mod tests {
         assert_eq!(kinds_of(&mut h, lines[3]), Some(Kind::Text));
     }
 
+    /// Adversarial lines must scan in linear time: no closer, a present but unusable
+    /// closer, nested openers, and `](` with no final `)`.
     #[test]
-    fn repeated_brackets_stay_linear() {
-        let line = "[".repeat(20_000);
-        let start = std::time::Instant::now();
-        let spans = kinds(&line);
-        assert_spans_valid(&line, &spans);
-        assert!(start.elapsed().as_millis() < 200, "took {:?}", start.elapsed());
+    fn adversarial_lines_stay_linear() {
+        for line in [
+            "[".repeat(20_000),
+            format!("{}]", "[".repeat(20_000)),
+            format!("{}](", "[".repeat(20_000)),
+            "`".repeat(20_001),
+            format!("{}x", "![".repeat(10_000)),
+        ] {
+            let start = std::time::Instant::now();
+            let spans = kinds(&line);
+            assert_spans_valid(&line, &spans);
+            // Doubling the input must not quadruple the time; a generous absolute bound
+            // catches the quadratic case (which took seconds) without being flaky.
+            assert!(start.elapsed().as_millis() < 300, "{:?} took {:?}", &line[..8], start.elapsed());
+        }
     }
 
     #[test]

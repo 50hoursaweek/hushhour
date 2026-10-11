@@ -161,10 +161,7 @@ impl Preferences {
 
     /// Read the preferences file, falling back to defaults for anything missing or malformed.
     pub fn load() -> Self {
-        Self::path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|text| Self::parse(&text))
-            .unwrap_or_default()
+        Self::path().and_then(|p| read_bounded(&p, 64 * 1024)).map(|text| Self::parse(&text)).unwrap_or_default()
     }
 
     fn parse(text: &str) -> Self {
@@ -224,24 +221,24 @@ impl Preferences {
     }
 }
 
-/// Write a small state file atomically: to a temporary sibling, then renamed over
-/// the target, so an interrupted write cannot leave a half-written file.
+/// Write a small state file atomically, creating its directory first.
 pub fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
-    use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let temp = path.with_extension(format!("tmp{}", std::process::id()));
-    let result = (|| {
-        let mut file = std::fs::File::create(&temp)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        std::fs::rename(&temp, path)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
+    crate::atomic::write(path, text.as_bytes())
+}
+
+/// Read at most `limit` bytes of a UTF-8 text file; anything larger or invalid is ignored.
+pub fn read_bounded(path: &std::path::Path, limit: u64) -> Option<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > limit {
+        return None;
     }
-    result
+    String::from_utf8(bytes).ok()
 }
 
 /// `true`/`false`; anything else is treated as absent so the default applies.

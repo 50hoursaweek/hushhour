@@ -33,15 +33,15 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.3/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.4/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.3/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.4/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.3/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/inkpad/v0.1.4/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -57,6 +57,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.1.4" date="2026-10-11">
+      <description>
+        <p>Follow-up audit fixes: saving never falls back to overwriting in place and uses exclusively created temporary files; Open requests are identified so a cancelled "Don't save" cannot let another load replace edited text; Cancel disarms a pending save-and-quit; every exit runs the same cleanup; the music decoder is cancellable and gives up on empty or broken files; linear Markdown scanning in every case; bounded document, paste and undo sizes; keyboard choices in the unsaved-changes dialog; tests run in CI.</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-10-11">
       <description>
         <p>Review fixes: saves are atomic and never mark newer edits as saved; closing, opening and New always protect unsaved changes; muting no longer loses the music; file decoding moved off the audio thread; licence texts ship with the app; fonts are upstream releases; release AppImages are built for glibc 2.35.</p>

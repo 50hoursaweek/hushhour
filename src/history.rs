@@ -6,6 +6,10 @@ use std::time::{Duration, Instant};
 use iced::advanced::text::editor::Position;
 
 const COALESCE_WINDOW: Duration = Duration::from_millis(1500);
+/// Undo steps kept; the oldest are dropped beyond this so history cannot grow without bound.
+const MAX_STEPS: usize = 2000;
+/// Bytes of removed+inserted text kept across all steps, for the same reason.
+const MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Delta {
@@ -70,7 +74,21 @@ impl History {
         }
 
         self.undo.push(Delta { offset, removed, inserted, cursor_before: before, cursor_after: after });
+        self.trim();
         true
+    }
+
+    /// Drop the oldest steps once the history is too long or holds too much text.
+    fn trim(&mut self) {
+        let mut bytes: usize = self.undo.iter().map(|d| d.removed.len() + d.inserted.len()).sum();
+        let mut drop = 0;
+        while self.undo.len() - drop > MAX_STEPS || (bytes > MAX_BYTES && self.undo.len() - drop > 1) {
+            bytes -= self.undo[drop].removed.len() + self.undo[drop].inserted.len();
+            drop += 1;
+        }
+        if drop > 0 {
+            self.undo.drain(..drop);
+        }
     }
 
     /// Pop the step to revert. The caller applies it, then it becomes redoable.

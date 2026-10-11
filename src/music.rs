@@ -595,7 +595,8 @@ struct Drone {
     voices: Vec<DroneVoice>,
     brown: f32,
     brown_lp: LowPass,
-    master_lp: [LowPass; 2],
+    /// Two cascaded one-pole filters per channel, with their own states, for a steeper roll-off.
+    master_lp: [[LowPass; 2]; 2],
     reverb: [Reverb; 2],
     /// Samples until the next pitch move; `moving` is the voice currently away from its root.
     until_move: f32,
@@ -612,7 +613,7 @@ impl Drone {
             voices,
             brown: 0.0,
             brown_lp: LowPass::new(400.0),
-            master_lp: [LowPass::new(1200.0), LowPass::new(1200.0)],
+            master_lp: [[LowPass::new(1200.0), LowPass::new(1200.0)], [LowPass::new(1200.0), LowPass::new(1200.0)]],
             reverb: [Reverb::new(0), Reverb::new(23)],
             until_move: rng.range(20.0, 40.0) * SR,
             moving: None,
@@ -649,8 +650,8 @@ impl Source for Drone {
             let noise = self.brown_lp.run(self.brown) * 0.025;
             let dry = pad + noise;
             for ch in 0..2 {
-                let once = self.master_lp[ch].run(dry);
-                let filtered = self.master_lp[ch].run(once);
+                let once = self.master_lp[ch][0].run(dry);
+                let filtered = self.master_lp[ch][1].run(once);
                 let wet = self.reverb[ch].run(filtered);
                 frame[ch] = (filtered * 0.6 + wet * 0.4) * 0.8;
             }
@@ -673,22 +674,28 @@ const FILE_GAIN: f32 = 0.25;
 const CHUNK_FRAMES: usize = 4096;
 /// Chunks the decoder may run ahead; bounds memory and keeps a track switch quick.
 const CHUNK_QUEUE: usize = 8;
-/// Consecutive undecodable packets before a file is given up on.
+/// Consecutive undecodable packets before a file is given up on (not reset by looping).
 const MAX_DECODE_ERRORS: usize = 100;
+/// Passes over the file that yield no audio at all before it is given up on.
+const MAX_EMPTY_PASSES: usize = 2;
 
 enum Decoded {
+    /// The file was probed: its sample rate, so the mixer can resample.
+    Opened { sample_rate: u32 },
     Frames(Vec<[f32; 2]>),
     /// The file could not be read or decoded any further.
     Failed,
 }
 
-/// A file from the music directory, looped. Decoding runs on its own thread and
-/// hands bounded chunks to the mixer, which never blocks on it: when the decoder
-/// falls behind, the mixer plays silence until it catches up.
+/// A file from the music directory, looped. Everything that touches the file,
+/// probing included, runs on a decoder thread that hands bounded chunks to the
+/// mixer; the mixer never blocks on it and plays silence until audio is ready.
+/// Dropping the source cancels the thread.
 pub struct FileSource {
     rx: std::sync::mpsc::Receiver<Decoded>,
-    /// Source frames per output frame; 1.0 when the file is at the output rate.
-    rate: f32,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Source frames per output frame; `None` until the decoder has probed the file.
+    rate: Option<f32>,
     /// Decoded, interleaved stereo at the file's rate, waiting to be resampled.
     pending: VecDeque<[f32; 2]>,
     position: f32,
@@ -697,24 +704,25 @@ pub struct FileSource {
 }
 
 impl FileSource {
-    /// Probe the file (quick, and the only part done on the caller's thread) and
-    /// start the decoder thread.
+    /// Returns at once; the decoder thread does the probing. A file that turns
+    /// out to be unreadable makes the source `finished()` instead.
     pub fn open(path: &Path) -> Option<Self> {
-        if !std::fs::metadata(path).ok()?.is_file() {
-            return None;
-        }
-        let (_, _, _, _, sample_rate) = Self::open_streams(path)?;
         let (tx, rx) = std::sync::mpsc::sync_channel::<Decoded>(CHUNK_QUEUE);
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
         let path = path.to_owned();
         std::thread::Builder::new()
             .name("inkpad-decode".into())
-            .spawn(move || decode_worker(&path, tx))
+            .spawn(move || decode_worker(&path, tx, &worker_cancel))
             .ok()?;
-        Some(Self { rx, rate: sample_rate as f32 / SR, pending: VecDeque::new(), position: 0.0, last: [0.0; 2], failed: false })
+        Some(Self { rx, cancel, rate: None, pending: VecDeque::new(), position: 0.0, last: [0.0; 2], failed: false })
     }
 
     #[allow(clippy::type_complexity)]
     fn open_streams(path: &Path) -> Option<(Box<dyn FormatReader>, Box<dyn Decoder>, u32, usize, u32)> {
+        if !std::fs::metadata(path).ok()?.is_file() {
+            return None;
+        }
         let file = File::open(path).ok()?;
         let stream = MediaSourceStream::new(Box::new(file), Default::default());
         let mut hint = Hint::new();
@@ -735,34 +743,68 @@ impl FileSource {
         Some((reader, decoder, track_id, channels, sample_rate))
     }
 
-    /// Take whatever the decoder has ready, without waiting for it.
-    fn pull(&mut self, frames: usize) {
-        while self.pending.len() < frames && !self.failed {
+    /// Take everything the decoder has ready, without waiting for it. The queue is
+    /// bounded, so this is at most a few chunks; draining it fully means a `Failed`
+    /// behind buffered frames is seen at once.
+    fn pull(&mut self) {
+        while !self.failed {
             match self.rx.try_recv() {
+                Ok(Decoded::Opened { sample_rate }) => self.rate = Some(sample_rate as f32 / SR),
                 Ok(Decoded::Frames(chunk)) => self.pending.extend(chunk),
-                Ok(Decoded::Failed) => self.failed = true,
+                Ok(Decoded::Failed) | Err(std::sync::mpsc::TryRecvError::Disconnected) => self.fail(),
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.failed = true,
             }
         }
     }
+
+    /// Policy on failure: whatever was buffered is discarded and the source ends now.
+    fn fail(&mut self) {
+        self.failed = true;
+        self.pending.clear();
+        self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
-/// Decode `path` over and over (the track loops), sending chunks until the
-/// receiver is dropped or the file gives up.
-fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>) {
+impl Drop for FileSource {
+    fn drop(&mut self) {
+        self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Decode `path` over and over (the track loops), sending chunks until cancelled
+/// or until the file proves unusable. Every packet and every pass checks the
+/// cancellation flag, and a pass that produces no audio counts towards giving up.
+fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>, cancel: &std::sync::atomic::AtomicBool) {
+    use std::sync::atomic::Ordering;
+    let cancelled = || cancel.load(Ordering::Relaxed);
     let mut chunk: Vec<[f32; 2]> = Vec::with_capacity(CHUNK_FRAMES);
     let mut buf: Option<SampleBuffer<f32>> = None;
+    let mut errors = 0usize;
+    let mut empty_passes = 0usize;
+    let mut announced = false;
     loop {
-        let Some((mut reader, mut decoder, track_id, channels, _)) = FileSource::open_streams(path) else {
+        if cancelled() {
+            return;
+        }
+        let Some((mut reader, mut decoder, track_id, channels, sample_rate)) = FileSource::open_streams(path) else {
             let _ = tx.send(Decoded::Failed);
             return;
         };
-        let mut errors = 0;
+        if !announced {
+            announced = true;
+            if tx.send(Decoded::Opened { sample_rate }).is_err() {
+                return;
+            }
+        }
+        let mut frames_this_pass = 0usize;
         loop {
+            if cancelled() {
+                return;
+            }
             let packet = match reader.next_packet() {
                 Ok(p) => p,
-                // End of file (symphonia reports it as an error): start over to loop.
+                // End of file (symphonia reports it as an error) or a read failure:
+                // either way this pass is over.
                 Err(_) => break,
             };
             if packet.track_id() != track_id {
@@ -793,10 +835,12 @@ fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>) {
                 let l = frame.first().copied().unwrap_or(0.0);
                 let r = frame.get(1).copied().unwrap_or(l);
                 chunk.push([l, r]);
+                frames_this_pass += 1;
                 if chunk.len() >= CHUNK_FRAMES {
-                    // Blocks while the queue is full: that is the pacing.
+                    // Blocks while the queue is full: that is the pacing. A dropped
+                    // receiver ends the thread here; the flag covers the quiet stretches.
                     if tx.send(Decoded::Frames(std::mem::replace(&mut chunk, Vec::with_capacity(CHUNK_FRAMES)))).is_err() {
-                        return; // the source was dropped
+                        return;
                     }
                 }
             }
@@ -804,13 +848,31 @@ fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>) {
         if !chunk.is_empty() && tx.send(Decoded::Frames(std::mem::take(&mut chunk))).is_err() {
             return;
         }
+        if frames_this_pass == 0 {
+            // An empty or broken file: do not spin on it.
+            empty_passes += 1;
+            if empty_passes >= MAX_EMPTY_PASSES {
+                let _ = tx.send(Decoded::Failed);
+                return;
+            }
+        } else {
+            empty_passes = 0;
+        }
     }
 }
 
 impl Source for FileSource {
     fn fill(&mut self, out: &mut [f32]) {
-        let needed = (out.len() / 2) as f32 * self.rate + 2.0;
-        self.pull(needed as usize + 1);
+        let rate = match self.rate {
+            Some(rate) => rate,
+            None => {
+                // Not probed yet (or never will be): silence while we wait.
+                self.pull();
+                out.fill(0.0);
+                return;
+            }
+        };
+        self.pull();
         for frame in out.chunks_mut(2) {
             // Linear interpolation between the last consumed frame and the next pending one.
             let mut starved = false;
@@ -838,12 +900,12 @@ impl Source for FileSource {
             // they sit at the level of the generated soundscapes on the same volume setting.
             frame[0] = (self.last[0] + (next[0] - self.last[0]) * t) * FILE_GAIN;
             frame[1] = (self.last[1] + (next[1] - self.last[1]) * t) * FILE_GAIN;
-            self.position += self.rate;
+            self.position += rate;
         }
     }
 
     fn finished(&self) -> bool {
-        self.failed && self.pending.is_empty()
+        self.failed
     }
 }
 
@@ -897,7 +959,7 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
 
         let mut source = FileSource::open(&path).expect("open wav");
-        // Decoding happens on a worker thread; give it a moment to fill the queue.
+        // Probing and decoding happen on a worker thread; give it a moment to fill the queue.
         std::thread::sleep(std::time::Duration::from_millis(300));
         // Pull 2 s at 44.1 kHz: four passes over the file.
         let mut buf = vec![0f32; 2 * RATE as usize * 2];
@@ -912,6 +974,68 @@ mod tests {
         // Both channels carry the mono signal.
         assert!(buf.chunks(2).all(|f| (f[0] - f[1]).abs() < 1e-6));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Audit F06: an empty WAV must make the worker give up (and a dropped source must
+    /// cancel the thread), instead of reopening forever.
+    #[test]
+    fn empty_file_fails_and_a_dropped_source_cancels() {
+        let dir = std::env::temp_dir().join(format!("inkpad-music-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("empty.wav");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&36u32.to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&44_100u32.to_le_bytes());
+        bytes.extend_from_slice(&(44_100u32 * 2).to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+
+        let mut source = FileSource::open(&path).expect("spawn");
+        let mut buf = vec![0f32; 882];
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !source.finished() && std::time::Instant::now() < deadline {
+            source.fill(&mut buf);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(source.finished(), "an empty file must end the source");
+        assert!(buf.iter().all(|s| *s == 0.0));
+
+        // Dropping a source sets its cancellation flag; the worker sees it on its next check.
+        let source = FileSource::open(&path).expect("spawn");
+        let flag = source.cancel.clone();
+        drop(source);
+        assert!(flag.load(std::sync::atomic::Ordering::Relaxed));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Audit F07: failure discards buffered frames and the source finishes at once.
+    #[test]
+    fn failure_discards_pending_frames_and_finishes() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Decoded>(4);
+        let mut source = FileSource {
+            rx,
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            rate: Some(1.0),
+            pending: VecDeque::new(),
+            position: 0.0,
+            last: [0.0; 2],
+            failed: false,
+        };
+        tx.send(Decoded::Frames(vec![[0.5, 0.5]; 100])).unwrap();
+        tx.send(Decoded::Failed).unwrap();
+        let mut out = vec![0f32; 2 * 50];
+        source.fill(&mut out);
+        assert!(source.finished());
+        assert!(source.pending.is_empty());
+        assert!(out.iter().all(|s| *s == 0.0));
     }
 
     #[test]

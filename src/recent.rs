@@ -14,15 +14,13 @@ const MAX_FILE_BYTES: u64 = 64 * 1024;
 /// Load the list, dropping files that no longer exist.
 pub fn load() -> Vec<PathBuf> {
     let Some(p) = path() else { return Vec::new() };
-    if std::fs::metadata(&p).map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
-        return Vec::new();
-    }
-    let Ok(text) = std::fs::read_to_string(&p) else { return Vec::new() };
+    let Some(text) = crate::prefs::read_bounded(&p, MAX_FILE_BYTES) else { return Vec::new() };
     text.lines().filter(|l| !l.is_empty()).map(PathBuf::from).filter(|p| p.is_file()).take(MAX).collect()
 }
 
-/// Move `file` to the front of the list and persist it.
-pub fn push(list: &mut Vec<PathBuf>, file: &Path) {
+/// Move `file` to the front of the list and persist it. The list is updated even
+/// when persisting fails; the error is returned so the UI can mention it.
+pub fn push(list: &mut Vec<PathBuf>, file: &Path) -> Result<(), String> {
     // Absolute and resolved, so the same file opened via different paths appears once.
     let file = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_owned());
     list.retain(|p| *p != file);
@@ -37,8 +35,9 @@ pub fn push(list: &mut Vec<PathBuf>, file: &Path) {
             .filter(|s| !s.contains(['\n', '\r']))
             .map(|s| format!("{s}\n"))
             .collect();
-        let _ = crate::prefs::write_atomic(&p, &text);
+        crate::prefs::write_atomic(&p, &text).map_err(|e| format!("Could not save the recent files list: {e}"))?;
     }
+    Ok(())
 }
 
 /// A short form of the folder for the menu: the home directory becomes `~`.

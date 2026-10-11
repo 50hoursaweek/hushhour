@@ -1,5 +1,6 @@
 //! Inkpad: a quiet Markdown editor for Linux, built with iced.
 
+mod atomic;
 mod dsp;
 mod editor;
 mod frost;
@@ -102,8 +103,15 @@ struct Inkpad {
     generation: u64,
     /// Bumped on every edit; lets a "Don't save" answer authorise one specific replacement.
     edits: u64,
-    /// Set by "Don't save" for an Open: the (generation, edits) state that may be replaced.
-    replace_authorised: Option<(u64, u64)>,
+    /// Each Open or read gets an id; only the latest outstanding one may replace the document.
+    next_request: u64,
+    open_request: Option<u64>,
+    /// Set by "Don't save" for an Open: the request whose result may replace the document.
+    replace_authorised: Option<u64>,
+    /// Set once quitting has begun: late results and attachments are then ignored.
+    quitting: bool,
+    /// False in tests, so no preferences file is written.
+    persist: bool,
     /// A file that finished loading while the document had new changes; waits for an answer.
     pending_open: Option<(PathBuf, Arc<String>)>,
     /// True while a write is in flight; a second Save waits for it.
@@ -138,8 +146,8 @@ enum Message {
     Edit(text_editor::Action),
     New,
     Open,
-    /// A file finished loading (or failed) for the document generation it was requested in.
-    Opened { generation: u64, result: Result<(PathBuf, Arc<String>), String> },
+    /// A file finished loading (or failed) for the request that asked for it.
+    Opened { request: u64, result: Result<(PathBuf, Arc<String>), String> },
     OpenRecent(PathBuf),
     Save,
     SaveAs,
@@ -202,7 +210,20 @@ impl Inkpad {
         let music_dirs = MusicDirs::locate();
         // Create the user's folder so it is easy to find and drop tracks into.
         let _ = std::fs::create_dir_all(&music_dirs.user);
-        let app = Self {
+        let mut app = Self::fresh(Preferences::load(), recent::load(), music_dirs);
+        if app.prefs.show_welcome {
+            app.dialog = Some(Dialog::Welcome);
+        }
+        let mut tasks = vec![iced::widget::operation::focus_next()];
+        if let Some(path) = app.apply_args(std::env::args_os().skip(1), &mut tasks) {
+            tasks.push(app.read(path));
+        }
+        (app, Task::batch(tasks))
+    }
+
+    /// The initial state, without touching the environment: tests build it directly.
+    fn fresh(prefs: Preferences, recent: Vec<PathBuf>, music_dirs: MusicDirs) -> Self {
+        let mut app = Self {
             content: text_editor::Content::new(),
             text: String::new(),
             saved_text: Arc::new(String::new()),
@@ -211,18 +232,22 @@ impl Inkpad {
             dirty: false,
             generation: 0,
             edits: 0,
+            next_request: 0,
+            open_request: None,
             replace_authorised: None,
+            quitting: false,
+            persist: true,
             pending_open: None,
             saving: false,
-            prefs: Preferences::load(),
             sound: sound::Sound::start(music_dirs.clone()),
+            prefs,
             music_dirs,
             music_options: Vec::new(),
             menu_open: false,
             dialog: None,
             after_save: None,
             pending_path: None,
-            recent: recent::load(),
+            recent,
             frost: None,
             frost_attach_started: false,
             fullscreen: false,
@@ -234,19 +259,20 @@ impl Inkpad {
             stats: Stats::default(),
             notice: None,
         };
-        let mut app = app;
-        if app.prefs.show_welcome {
-            app.dialog = Some(Dialog::Welcome);
-        }
         app.refresh_music_options();
         // Music is never started automatically; only its volume is remembered.
         app.sound.set_music_volume(app.prefs.music_volume);
-        let mut tasks = vec![iced::widget::operation::focus_next()];
-        // Options come before `--`; everything after it, and anything not starting with
-        // `--`, is a path. Paths stay as OS strings: Linux file names need not be UTF-8.
+        app
+    }
+
+    /// Apply command-line options; returns the file to open, if any.
+    /// Options come before `--`; everything after it, and anything not starting with
+    /// `--`, is a path. Paths stay as OS strings: Linux file names need not be UTF-8.
+    fn apply_args(&mut self, args: impl Iterator<Item = std::ffi::OsString>, tasks: &mut Vec<Task<Message>>) -> Option<PathBuf> {
+        let app = self;
         let mut options_done = false;
         let mut file: Option<PathBuf> = None;
-        for arg in std::env::args_os().skip(1) {
+        for arg in args {
             let option = (!options_done).then(|| arg.to_str().filter(|a| a.starts_with("--"))).flatten();
             match option {
                 Some("--") => options_done = true,
@@ -274,10 +300,7 @@ impl Inkpad {
                 }
             }
         }
-        if let Some(path) = file {
-            tasks.push(app.read(path));
-        }
-        (app, Task::batch(tasks))
+        file
     }
 
     fn title(&self) -> String {
@@ -307,6 +330,13 @@ impl Inkpad {
         }
         match message {
             Message::Edit(action) => {
+                // A paste that would take the document past the size limit is refused.
+                if let text_editor::Action::Edit(Edit::Paste(pasted)) = &action
+                    && (self.text.len() + pasted.len()) as u64 > MAX_DOCUMENT_BYTES
+                {
+                    self.notice = Some(format!("Paste refused: the document would exceed {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
+                    return Task::none();
+                }
                 let is_edit = action.is_edit();
                 let key = match &action {
                     text_editor::Action::Edit(Edit::Enter) => Some(sound::Key::Enter),
@@ -370,30 +400,43 @@ impl Inkpad {
                 self.dialog = None;
                 // The document is not marked clean here: if the replacement never happens
                 // (cancelled chooser, unreadable file) its unsaved changes stay protected.
-                // Instead this exact state is authorised to be replaced once.
-                self.replace_authorised = Some((self.generation, self.edits));
-                self.proceed(pending)
+                // For an Open, the request started below is the one allowed to replace it.
+                let task = self.proceed(pending);
+                if matches!(pending, Pending::Open | Pending::OpenRecent) {
+                    self.replace_authorised = self.open_request;
+                }
+                task
             }
             Message::SaveThen(pending) => {
                 self.dialog = None;
+                if self.saving {
+                    // Not armed: a save that was not asked for here must not carry the action out.
+                    self.notice = Some("Still saving…".to_owned());
+                    return Task::none();
+                }
                 self.after_save = Some(pending);
                 self.update(Message::Save)
             }
-            Message::Opened { generation, result } => {
-                if generation != self.generation {
-                    // The document was replaced while this file was loading; drop the result.
+            Message::Opened { request, result } => {
+                if self.quitting || self.open_request != Some(request) {
+                    // Superseded by a later request, or the document was replaced meanwhile.
                     return Task::none();
                 }
+                self.open_request = None;
                 let (path, text) = match result {
                     Ok(loaded) => loaded,
                     Err(e) => {
+                        // Cancelled or unreadable: this request's permission dies with it.
+                        if self.replace_authorised == Some(request) {
+                            self.replace_authorised = None;
+                        }
                         if !e.is_empty() {
                             self.notice = Some(e);
                         }
                         return Task::none();
                     }
                 };
-                let authorised = self.replace_authorised.take() == Some((self.generation, self.edits));
+                let authorised = self.replace_authorised.take() == Some(request);
                 if self.dirty && !authorised {
                     // Edited since the request was made: ask again rather than replace silently.
                     self.pending_open = Some((path, text));
@@ -432,7 +475,9 @@ impl Inkpad {
                 }
                 match result {
                     Ok(path) => {
-                        recent::push(&mut self.recent, &path);
+                        if let Err(e) = recent::push(&mut self.recent, &path) {
+                    self.notice = Some(e);
+                }
                         self.path = Some(path);
                         self.saved_text = text;
                         self.history.end_group();
@@ -457,8 +502,14 @@ impl Inkpad {
             Message::ToggleTypewriter => self.update(Message::SetTypewriter(!self.prefs.typewriter)),
             Message::CycleTheme => self.update(Message::SetTheme(self.prefs.theme.next())),
             Message::CycleFont => self.update(Message::SetFont(self.prefs.font.next())),
-            Message::ZoomIn => self.update(Message::SetSize(self.prefs.size + 1.0)),
-            Message::ZoomOut => self.update(Message::SetSize(self.prefs.size - 1.0)),
+            Message::ZoomIn => {
+                let _ = self.update(Message::SetSize(self.prefs.size + 1.0));
+                self.save_prefs()
+            }
+            Message::ZoomOut => {
+                let _ = self.update(Message::SetSize(self.prefs.size - 1.0));
+                self.save_prefs()
+            }
             Message::SetFocus(focus) => {
                 self.prefs.focus = focus;
                 self.refresh_focus();
@@ -539,6 +590,11 @@ impl Inkpad {
             }
             Message::CloseMenu => {
                 self.menu_open = false;
+                if matches!(self.dialog, Some(Dialog::Unsaved(_))) {
+                    // Cancelling the unsaved-changes dialog cancels the transition behind it,
+                    // including one attached to a save that is still in flight.
+                    self.cancel_transition();
+                }
                 self.dialog = None;
                 Task::none()
             }
@@ -566,6 +622,13 @@ impl Inkpad {
                 Task::batch([maximized, self.attach_frost()])
             }
             Message::FrostAttached(frost) => {
+                if self.quitting {
+                    // Too late to use it; release it so nothing is sent after shutdown began.
+                    if let Some(f) = frost {
+                        f.release();
+                    }
+                    return Task::none();
+                }
                 self.frost = frost;
                 self.apply_frost();
                 Task::none()
@@ -609,7 +672,7 @@ impl Inkpad {
                 if self.dirty {
                     return self.ask_unsaved(Pending::Quit);
                 }
-                iced::exit()
+                self.quit()
             }
             Message::CursorToEnd => {
                 self.content.perform(text_editor::Action::Move(Motion::DocumentEnd));
@@ -640,12 +703,43 @@ impl Inkpad {
                 if (self.menu_open || self.dialog.is_some()) && matches!(key, Key::Named(Named::Escape)) {
                     return self.update(Message::CloseMenu);
                 }
+                if let Some(Dialog::Unsaved(pending)) = self.dialog {
+                    // The dialog's three choices from the keyboard; nothing reaches the document.
+                    return match key.as_ref() {
+                        Key::Named(Named::Enter) => self.update(Message::SaveThen(pending)),
+                        Key::Character("d") | Key::Character("D") => self.update(Message::Discard(pending)),
+                        _ => Task::none(),
+                    };
+                }
                 match shortcut(&key, modifiers) {
                     Some(m) => self.update(m),
                     None => Task::none(),
                 }
             }
         }
+    }
+
+    /// The one way out: release the compositor effects, persist the settings, stop.
+    /// Every exit, clean or after the dialog, comes through here.
+    fn quit(&mut self) -> Task<Message> {
+        if !self.quitting {
+            self.quitting = true;
+            if let Some(frost) = self.frost.take() {
+                frost.release();
+            }
+            if self.persist {
+                let _ = self.prefs.save();
+            }
+        }
+        iced::exit()
+    }
+
+    /// Forget a document transition that was waiting on the unsaved-changes dialog.
+    fn cancel_transition(&mut self) {
+        self.after_save = None;
+        self.pending_path = None;
+        self.pending_open = None;
+        self.replace_authorised = None;
     }
 
     /// Show the unsaved-changes dialog for `pending`, closing the menu.
@@ -658,22 +752,15 @@ impl Inkpad {
     /// Carry out an action that was waiting on the unsaved-changes dialog (or needed none).
     fn proceed(&mut self, pending: Pending) -> Task<Message> {
         match pending {
-            Pending::Quit => {
-                // Release compositor objects and the settings before the window goes away.
-                if let Some(frost) = self.frost.take() {
-                    frost.release();
-                }
-                let _ = self.prefs.save();
-                iced::exit()
-            }
+            Pending::Quit => self.quit(),
             Pending::New => {
                 self.load(String::new());
                 self.path = None;
                 Task::none()
             }
             Pending::Open => {
-                let generation = self.generation;
-                Task::perform(open_dialog(), move |result| Message::Opened { generation, result })
+                let request = self.start_request();
+                Task::perform(open_dialog(), move |result| Message::Opened { request, result })
             }
             Pending::OpenRecent => match self.pending_path.take() {
                 Some(path) => self.read(path),
@@ -689,15 +776,24 @@ impl Inkpad {
         }
     }
 
-    /// Start reading `path` for the current document generation.
-    fn read(&self, path: PathBuf) -> Task<Message> {
-        let generation = self.generation;
-        Task::perform(read_file(path), move |result| Message::Opened { generation, result })
+    /// Begin an Open request; any earlier outstanding one is superseded.
+    fn start_request(&mut self) -> u64 {
+        self.next_request += 1;
+        self.open_request = Some(self.next_request);
+        self.next_request
+    }
+
+    /// Start reading `path` as a new request.
+    fn read(&mut self, path: PathBuf) -> Task<Message> {
+        let request = self.start_request();
+        Task::perform(read_file(path), move |result| Message::Opened { request, result })
     }
 
     /// Start writing the current text to `path`.
     fn write(&mut self, path: PathBuf) -> Task<Message> {
         self.saving = true;
+        // Edits made while the write is in flight start a new undo step.
+        self.history.end_group();
         let generation = self.generation;
         let text = Arc::new(self.content.text());
         let written = text.clone();
@@ -707,7 +803,9 @@ impl Inkpad {
     /// Replace the document with a loaded file.
     fn replace_with(&mut self, path: PathBuf, text: &str) {
         self.load(text.replace("\r\n", "\n"));
-        recent::push(&mut self.recent, &path);
+        if let Err(e) = recent::push(&mut self.recent, &path) {
+                    self.notice = Some(e);
+                }
         self.path = Some(path);
     }
 
@@ -748,6 +846,9 @@ impl Inkpad {
 
     /// Persist the preferences; a failure is reported in the status bar rather than fatal.
     fn save_prefs(&mut self) -> Task<Message> {
+        if !self.persist {
+            return Task::none();
+        }
         if let Err(e) = self.prefs.save() {
             self.notice = Some(format!("Could not save preferences: {e}"));
         }
@@ -764,6 +865,7 @@ impl Inkpad {
         self.dirty = false;
         self.generation += 1;
         self.edits = 0;
+        self.open_request = None;
         self.replace_authorised = None;
         self.pending_open = None;
         self.notice = None;
@@ -862,9 +964,10 @@ impl Inkpad {
 
         // "Don't save" then a cancelled chooser must leave the changes protected.
         let _ = self.update(Message::Discard(Pending::Open));
-        let _ = self.update(Message::Opened { generation: self.generation, result: Err(String::new()) });
-        if !self.dirty {
-            return Err("cancelled Open after Discard marked the document clean".to_owned());
+        let request = self.open_request.ok_or("Discard(Open) did not start a request")?;
+        let _ = self.update(Message::Opened { request, result: Err(String::new()) });
+        if !self.dirty || self.replace_authorised.is_some() {
+            return Err("cancelled Open after Discard marked the document clean or kept its permission".to_owned());
         }
         // A stale save result (older generation) must be ignored.
         let stale = Message::Saved { generation: self.generation + 100, text: Arc::new(String::new()), result: Ok(PathBuf::from("/nonexistent")) };
@@ -895,7 +998,8 @@ impl Inkpad {
         }
         // A file that finished loading while the document is dirty must ask, not replace.
         let _ = self.update(edit(Edit::Insert('!')));
-        let loaded = Message::Opened { generation: self.generation, result: Ok((PathBuf::from("/nonexistent/y.md"), Arc::new("other".to_owned()))) };
+        let request = self.start_request();
+        let loaded = Message::Opened { request, result: Ok((PathBuf::from("/nonexistent/y.md"), Arc::new("other".to_owned()))) };
         let _ = self.update(loaded);
         if self.dialog != Some(Dialog::Unsaved(Pending::Replace)) || self.content.text() == "other" {
             return Err("late Open result replaced an edited document".to_owned());
@@ -1192,10 +1296,10 @@ impl Inkpad {
         }
         let buttons: Element<'_, Message> = if let Dialog::Unsaved(pending) = dialog {
             row![
-                dialog_button("Don't save", Message::Discard(pending)),
+                dialog_button("Don't save (D)", Message::Discard(pending)),
                 space().width(Length::Fill),
-                dialog_button("Cancel", Message::CloseMenu),
-                dialog_button("Save", Message::SaveThen(pending)),
+                dialog_button("Cancel (Esc)", Message::CloseMenu),
+                dialog_button("Save (Enter)", Message::SaveThen(pending)),
             ]
             .spacing(8)
             .width(Length::Fill)
@@ -1630,7 +1734,15 @@ async fn read_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), String> {
     if meta.len() > MAX_DOCUMENT_BYTES {
         return Err(format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
     }
-    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot open {name}: {e}"))?;
+    // Read through a bounded reader from the opened handle: the size check above is
+    // advisory only, a file can grow or be replaced between the two.
+    use std::io::Read;
+    let file = std::fs::File::open(&path).map_err(|e| format!("Cannot open {name}: {e}"))?;
+    let mut bytes = Vec::new();
+    file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes).map_err(|e| format!("Cannot open {name}: {e}"))?;
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err(format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
+    }
     let text = String::from_utf8(bytes).map_err(|_| format!("Cannot open {name}: not UTF-8 text"))?;
     Ok((path, Arc::new(text)))
 }
@@ -1645,32 +1757,11 @@ async fn save_dialog(contents: Arc<String>) -> Result<PathBuf, String> {
     write_file(handle.path().to_path_buf(), contents).await
 }
 
-/// Write atomically: the content goes to a temporary sibling that replaces the
-/// target only once fully written, so a full disk or a crash leaves the old file
-/// intact. Where a sibling cannot be created (some portal paths) it falls back to
-/// a direct write.
+/// Write atomically (see `atomic::write`): the old file is untouched unless the
+/// new content is completely on disk. There is no in-place fallback.
 async fn write_file(path: PathBuf, contents: Arc<String>) -> Result<PathBuf, String> {
-    use std::io::Write;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let temp = path.with_file_name(format!(".{name}.inkpad-{}.tmp", std::process::id()));
-    let staged = (|| -> std::io::Result<()> {
-        let mut file = std::fs::File::create(&temp)?;
-        file.write_all(contents.as_bytes())?;
-        file.sync_all()?;
-        if let Ok(meta) = std::fs::metadata(&path) {
-            let _ = std::fs::set_permissions(&temp, meta.permissions());
-        }
-        std::fs::rename(&temp, &path)
-    })();
-    match staged {
-        Ok(()) => Ok(path),
-        Err(stage_err) => {
-            let _ = std::fs::remove_file(&temp);
-            // Could not stage next to the target: write in place, as a last resort.
-            std::fs::write(&path, contents.as_bytes()).map_err(|e| format!("{e} (atomic write failed: {stage_err})"))?;
-            Ok(path)
-        }
-    }
+    atomic::write(&path, contents.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
 pub fn main() -> iced::Result {
@@ -1712,4 +1803,140 @@ pub fn main() -> iced::Result {
         .exit_on_close_request(false)
         .antialiasing(true)
         .run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A headless app: default preferences, no sound, nothing persisted.
+    fn app() -> Inkpad {
+        let mut prefs = Preferences::default();
+        prefs.typing_sound = false;
+        let dirs = MusicDirs { bundled: None, user: std::env::temp_dir().join("inkpad-tests-music") };
+        let mut app = Inkpad::fresh(prefs, Vec::new(), dirs);
+        app.persist = false;
+        app
+    }
+
+    fn type_text(app: &mut Inkpad, s: &str) {
+        for c in s.chars() {
+            let _ = app.update(Message::Edit(text_editor::Action::Edit(Edit::Insert(c))));
+        }
+    }
+
+    fn loaded(request: u64, name: &str, text: &str) -> Message {
+        Message::Opened { request, result: Ok((PathBuf::from(format!("/nonexistent/{name}")), Arc::new(text.to_owned()))) }
+    }
+
+    /// The scripted editor check (typing, selection replacement, undo/redo, the
+    /// unsaved-changes guard and stale results) runs headless here too.
+    #[test]
+    fn scripted_selftest_passes() {
+        app().selftest().unwrap();
+    }
+
+    /// Audit F04: a cancelled "Don't save" chooser must not let an older, unrelated
+    /// load replace the edited document.
+    #[test]
+    fn cancelled_discard_does_not_authorise_an_older_load() {
+        let mut a = app();
+        // 1. A slow read for A starts from a clean document.
+        let _ = a.update(Message::OpenRecent(PathBuf::from("/nonexistent/a.md")));
+        let request_a = a.open_request.unwrap();
+        // 2. Meanwhile the document is edited to B.
+        type_text(&mut a, "B");
+        assert!(a.dirty);
+        // 3. Another Open, "Don't save", then the chooser is cancelled.
+        let _ = a.update(Message::Open);
+        assert_eq!(a.dialog, Some(Dialog::Unsaved(Pending::Open)));
+        let _ = a.update(Message::Discard(Pending::Open));
+        let request_b = a.open_request.unwrap();
+        assert_ne!(request_a, request_b);
+        let _ = a.update(Message::Opened { request: request_b, result: Err(String::new()) });
+        // 4. A's read finishes: superseded, so B stays, dirty and unprompted.
+        let _ = a.update(loaded(request_a, "a.md", "A"));
+        assert_eq!(a.content.text(), "B");
+        assert!(a.dirty);
+        assert_eq!(a.dialog, None);
+    }
+
+    /// Audit F04 (second order): with two clean Opens outstanding, only the newest result counts.
+    #[test]
+    fn only_the_latest_open_request_can_replace() {
+        let mut a = app();
+        let _ = a.update(Message::OpenRecent(PathBuf::from("/nonexistent/one.md")));
+        let first = a.open_request.unwrap();
+        let _ = a.update(Message::OpenRecent(PathBuf::from("/nonexistent/two.md")));
+        let second = a.open_request.unwrap();
+        let _ = a.update(loaded(first, "one.md", "one"));
+        assert_eq!(a.content.text(), "", "the superseded request must not load");
+        let _ = a.update(loaded(second, "two.md", "two"));
+        assert_eq!(a.content.text(), "two");
+    }
+
+    /// Audit F03: Cancel on the dialog disarms a pending save-then-quit, and a
+    /// SaveThen while a save is in flight is refused rather than armed.
+    #[test]
+    fn cancel_disarms_a_pending_transition() {
+        let mut a = app();
+        type_text(&mut a, "x");
+        let _ = a.update(Message::Quit);
+        let _ = a.update(Message::SaveThen(Pending::Quit)); // starts Save As (in flight)
+        assert!(a.saving);
+        assert_eq!(a.after_save, Some(Pending::Quit));
+        let _ = a.update(Message::Quit);
+        assert_eq!(a.dialog, Some(Dialog::Unsaved(Pending::Quit)));
+        let _ = a.update(Message::CloseMenu);
+        assert_eq!(a.after_save, None, "Cancel must revoke the pending quit");
+        // A second SaveThen while still saving is not armed.
+        let _ = a.update(Message::Quit);
+        let _ = a.update(Message::SaveThen(Pending::Quit));
+        assert_eq!(a.after_save, None);
+        // The save completing now must not quit.
+        let text = Arc::new(a.content.text());
+        let _ = a.update(Message::Saved { generation: a.generation, text, result: Ok(PathBuf::from("/nonexistent/x.md")) });
+        assert!(!a.quitting);
+        assert!(!a.dirty);
+    }
+
+    /// Audit F05: every exit goes through the cleanup path, including a clean Quit.
+    #[test]
+    fn clean_quit_runs_the_cleanup_path() {
+        let mut a = app();
+        let _ = a.update(Message::Quit);
+        assert!(a.quitting);
+        assert!(a.frost.is_none());
+        let mut b = app();
+        type_text(&mut b, "x");
+        let _ = b.update(Message::Quit);
+        let _ = b.update(Message::Discard(Pending::Quit));
+        assert!(b.quitting);
+    }
+
+    /// Audit F13: the unsaved dialog answers to the keyboard.
+    #[test]
+    fn unsaved_dialog_keyboard_choices() {
+        let mut a = app();
+        type_text(&mut a, "x");
+        let _ = a.update(Message::Quit);
+        let _ = a.update(Message::KeyPressed(Key::Named(Named::Escape), Modifiers::default()));
+        assert_eq!(a.dialog, None);
+        assert!(!a.quitting);
+        let _ = a.update(Message::Quit);
+        let _ = a.update(Message::KeyPressed(Key::Character("d".into()), Modifiers::default()));
+        assert!(a.quitting, "D discards and quits");
+    }
+
+    /// R11 note: edits during an in-flight save are a separate undo step.
+    #[test]
+    fn typing_during_a_save_starts_a_new_undo_step() {
+        let mut a = app();
+        a.path = Some(PathBuf::from("/nonexistent/x.md"));
+        type_text(&mut a, "ab");
+        let _ = a.update(Message::Save); // write in flight
+        type_text(&mut a, "cd");
+        let _ = a.update(Message::Undo);
+        assert_eq!(a.content.text(), "ab");
+    }
 }

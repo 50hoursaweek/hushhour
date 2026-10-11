@@ -5,6 +5,27 @@
 //! offers the `org_kde_kwin_blur` and `org_kde_kwin_contrast` protocols, which
 //! are bound here on the window's own `wl_surface`. Compositors without them
 //! (COSMIC, GNOME) get the translucent page only.
+//!
+//! # Safety invariant
+//!
+//! The display and surface belong to winit; this module borrows them. Their use
+//! is safe because of the following, which `main.rs` upholds:
+//!
+//! 1. Every request sent through a [`Frost`] (`attach`, `apply`, `release`) runs
+//!    inside the application's `update()`.
+//! 2. The window exists for the whole of every `update()` call: iced destroys
+//!    windows only after the event loop has stopped.
+//! 3. The loop stops only through `iced::exit()`, which the application issues
+//!    solely from its single `quit()` path after calling [`Frost::release`] and
+//!    dropping the handle; a compositor close request is intercepted
+//!    (`exit_on_close_request(false)`) and routed into that same path.
+//! 4. Once quitting has begun, a late attachment result is released and dropped,
+//!    so nothing is sent during or after shutdown.
+//! 5. The guest event queue is never destroyed (`ManuallyDrop`): it holds a
+//!    `Connection` clone pointing at a `Backend` made from the foreign display,
+//!    which does not own the display. The only destructor side effect this avoids
+//!    is `wl_event_queue_destroy`, which must not run after winit disconnects.
+//!    Cost: one queue object per process.
 
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -38,8 +59,7 @@ pub struct Frost(Arc<Mutex<Inner>>);
 struct Inner {
     conn: Connection,
     /// Kept alive so objects created with `qh` stay valid; never dispatched (no events
-    /// matter) and never destroyed: winit owns the display, and destroying a queue
-    /// after the display is gone would be a use after free. One small leak per process.
+    /// matter) and never destroyed: see the safety invariant in the module docs.
     _queue: std::mem::ManuallyDrop<EventQueue<State>>,
     qh: QueueHandle<State>,
     surface: WlSurface,
