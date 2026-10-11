@@ -246,6 +246,19 @@ impl Inkpad {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        // Actions chosen from the menu close it; the result should be visible, not hidden behind the card.
+        if matches!(
+            message,
+            Message::New
+                | Message::Open
+                | Message::OpenRecent(_)
+                | Message::Save
+                | Message::SaveAs
+                | Message::ToggleFullscreen
+                | Message::ToggleDecorations
+        ) {
+            self.menu_open = false;
+        }
         match message {
             Message::Edit(action) => {
                 let is_edit = action.is_edit();
