@@ -16,7 +16,7 @@ mod stats;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iced::advanced::text::editor::{Cursor, Edit, Motion};
+use iced::advanced::text::editor::{Cursor, Edit, LineEnding, Motion};
 use iced::advanced::text::{LineHeight, Wrapping};
 use iced::keyboard::{self, Key, Modifiers};
 use iced::keyboard::key::Named;
@@ -125,6 +125,9 @@ struct Inkpad {
     persist: bool,
     /// Where the recent list is written when persisting; `None` keeps it in memory only.
     recent_store: Option<PathBuf>,
+    /// Byte limit for the document: `MAX_DOCUMENT_BYTES`, smaller in tests. Every growing
+    /// edit is checked against it, so the document always stays reopenable.
+    size_limit: u64,
     /// A file that finished loading while the document had new changes; waits for an answer.
     pending_open: Option<(PathBuf, Arc<String>)>,
     /// True while a write is in flight; a second Save waits for it.
@@ -251,6 +254,7 @@ impl Inkpad {
             quitting: false,
             persist: true,
             recent_store: recent::path(),
+            size_limit: MAX_DOCUMENT_BYTES,
             pending_open: None,
             saving: false,
             sound: sound::Sound::start(music_dirs.clone()),
@@ -351,12 +355,20 @@ impl Inkpad {
         }
         match message {
             Message::Edit(action) => {
-                // A paste that would take the document past the size limit is refused.
-                if let text_editor::Action::Edit(Edit::Paste(pasted)) = &action
-                    && !paste_fits(self.text.len(), self.selected_bytes(), pasted.len())
-                {
-                    self.notice = Some(format!("Paste refused: the document would exceed {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
-                    return Task::none();
+                // An edit that would take the document past the size limit is refused before
+                // anything changes, so what the editor holds can always be saved and reopened.
+                // Deletions are never refused.
+                if let text_editor::Action::Edit(edit) = &action {
+                    let added = self.added_bytes(edit);
+                    if added > 0 && !edit_fits(self.text.len(), self.selected_bytes(), added, self.size_limit) {
+                        let mb = self.size_limit / 1024 / 1024;
+                        self.notice = Some(if matches!(edit, Edit::Paste(_)) {
+                            format!("Paste refused: the document would exceed {mb} MB")
+                        } else {
+                            format!("The document is at its {mb} MB limit; nothing more can be added")
+                        });
+                        return Task::none();
+                    }
                 }
                 let is_edit = action.is_edit();
                 let key = match &action {
@@ -860,6 +872,22 @@ impl Inkpad {
     /// Bytes of the current selection, which a paste replaces.
     fn selected_bytes(&self) -> usize {
         self.content.selection().map_or(0, |s| s.len())
+    }
+
+    /// Bytes an edit adds to the document, before what it replaces is subtracted.
+    fn added_bytes(&self, edit: &Edit) -> usize {
+        match edit {
+            Edit::Insert(c) => c.len_utf8(),
+            Edit::Paste(text) => text.len(),
+            // A line without an ending yet gets the default one when the text is joined.
+            Edit::Enter => match self.content.line_ending() {
+                Some(ending) if ending != LineEnding::None => ending.as_str().len(),
+                _ => LineEnding::default().as_str().len(),
+            },
+            // Not produced by this editor's key handling; counted generously should it be.
+            Edit::Indent => 4 * (1 + self.content.selection().map_or(0, |s| s.matches('\n').count())),
+            Edit::Unindent | Edit::Backspace | Edit::Delete => 0,
+        }
     }
 
     /// Dirty means the text differs from what was last loaded or saved, so undoing back
@@ -1768,11 +1796,11 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
 /// Documents larger than this are refused rather than loaded into the editor.
 const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
 
-/// Whether replacing `selected` bytes of a `current`-byte document with `pasted` bytes
-/// keeps the document within [`MAX_DOCUMENT_BYTES`]. Overflow counts as too big.
-fn paste_fits(current: usize, selected: usize, pasted: usize) -> bool {
+/// Whether replacing `selected` bytes of a `current`-byte document with `added` bytes
+/// keeps the document within `limit`. Overflow counts as too big.
+fn edit_fits(current: usize, selected: usize, added: usize, limit: u64) -> bool {
     let kept = current.saturating_sub(selected) as u64;
-    kept.checked_add(pasted as u64).is_some_and(|total| total <= MAX_DOCUMENT_BYTES)
+    kept.checked_add(added as u64).is_some_and(|total| total <= limit)
 }
 
 /// An empty error means the chooser was cancelled; nothing to report.
@@ -1786,6 +1814,13 @@ async fn open_dialog() -> Result<(PathBuf, Arc<String>), String> {
 }
 
 async fn read_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), String> {
+    load_file(path)
+}
+
+/// Read a document, refusing anything that is not a regular UTF-8 file of at most
+/// `MAX_DOCUMENT_BYTES`. The limit is inclusive, matching the edit guard, so a document
+/// the editor was allowed to build always reopens.
+fn load_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let too_large = || format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024);
     // Looked at by name first, so a FIFO or a device is refused without opening it
@@ -1827,8 +1862,14 @@ async fn save_dialog(contents: Arc<String>) -> Result<PathBuf, String> {
 /// Write atomically (see `atomic::write`): the old file is untouched unless the
 /// new content is completely on disk. There is no in-place fallback.
 async fn write_file(path: PathBuf, contents: Arc<String>) -> Result<PathBuf, String> {
-    atomic::write(&path, contents.as_bytes()).map_err(|e| e.to_string())?;
+    save_file(&path, &contents)?;
     Ok(path)
+}
+
+/// A save is never refused for size: the edit guard keeps the document within the
+/// limit, and refusing to write what the user typed would be the one real way to lose it.
+fn save_file(path: &Path, contents: &str) -> Result<(), String> {
+    atomic::write(path, contents.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn main() -> iced::Result {
@@ -1994,7 +2035,8 @@ mod tests {
         assert!(b.quitting);
     }
 
-    /// Audit F13: the unsaved dialog answers to the keyboard.
+    /// Audit F13: the unsaved dialog answers to the keyboard: Escape cancels, D discards,
+    /// Enter saves and then carries the action out.
     #[test]
     fn unsaved_dialog_keyboard_choices() {
         let mut a = app();
@@ -2006,6 +2048,18 @@ mod tests {
         let _ = a.update(Message::Quit);
         let _ = a.update(Message::KeyPressed(Key::Character("d".into()), Modifiers::default()));
         assert!(a.quitting, "D discards and quits");
+
+        let mut b = app();
+        type_text(&mut b, "x");
+        let _ = b.update(Message::Quit);
+        let _ = b.update(Message::KeyPressed(Key::Named(Named::Enter), Modifiers::default()));
+        assert_eq!(b.dialog, None);
+        assert!(b.saving, "Enter starts the save (Save As for an untitled document)");
+        assert_eq!(b.after_save, Some(Pending::Quit));
+        assert!(!b.quitting, "the quit waits for the save");
+        let msg = saved(&b, Path::new("/nonexistent/x.md"));
+        let _ = b.update(msg);
+        assert!(b.quitting, "and follows once it succeeds");
     }
 
     /// R11 note: edits during an in-flight save are a separate undo step.
@@ -2141,12 +2195,13 @@ mod tests {
     #[test]
     fn paste_limit_accounts_for_the_selection() {
         let limit = MAX_DOCUMENT_BYTES as usize;
-        assert!(paste_fits(limit, limit, limit), "replacing a full document with one of equal size");
-        assert!(paste_fits(limit - 10, 0, 10));
-        assert!(!paste_fits(limit - 9, 0, 10));
-        assert!(paste_fits(100, 60, limit - 40));
-        assert!(!paste_fits(100, 60, limit - 39));
-        assert!(!paste_fits(usize::MAX, 0, usize::MAX), "no overflow");
+        let fits = |current, selected, added| edit_fits(current, selected, added, MAX_DOCUMENT_BYTES);
+        assert!(fits(limit, limit, limit), "replacing a full document with one of equal size");
+        assert!(fits(limit - 10, 0, 10));
+        assert!(!fits(limit - 9, 0, 10));
+        assert!(fits(100, 60, limit - 40));
+        assert!(!fits(100, 60, limit - 39));
+        assert!(!fits(usize::MAX, 0, usize::MAX), "no overflow");
 
         let mut a = app();
         let text = "héllo\nwörld";
@@ -2158,5 +2213,68 @@ mod tests {
         let _ = a.update(Message::Edit(text_editor::Action::Move(Motion::DocumentStart)));
         let _ = a.update(Message::Edit(text_editor::Action::SelectWord));
         assert_eq!(a.selected_bytes(), "héllo".len());
+    }
+
+    /// Audit W01: every growing edit (typing, Enter, paste) is checked against the limit
+    /// with the selection accounted for, deletions never are, and the document never
+    /// exceeds the limit. A small limit stands in for the real one here; the real
+    /// boundary is checked in `the_open_limit_is_inclusive`.
+    #[test]
+    fn edits_cannot_grow_the_document_past_the_limit() {
+        let mut a = app();
+        a.size_limit = 8;
+        let edit = |a: &mut Inkpad, e: Edit| {
+            let _ = a.update(Message::Edit(text_editor::Action::Edit(e)));
+            assert!(a.text.len() as u64 <= a.size_limit, "the document must never exceed the limit");
+        };
+        type_text(&mut a, "abcdefg");
+        a.notice = None;
+        edit(&mut a, Edit::Insert('é')); // two bytes, one too many
+        assert_eq!(a.content.text(), "abcdefg");
+        assert!(a.notice.as_deref().is_some_and(|n| n.contains("limit")), "{:?}", a.notice);
+        edit(&mut a, Edit::Insert('h')); // exactly at the limit: allowed
+        assert_eq!(a.content.text(), "abcdefgh");
+        edit(&mut a, Edit::Insert('i'));
+        edit(&mut a, Edit::Enter);
+        edit(&mut a, Edit::Paste(Arc::new("xy".to_owned())));
+        assert_eq!(a.content.text(), "abcdefgh", "typing, Enter and paste are all refused at the limit");
+        assert!(a.notice.as_deref().is_some_and(|n| n.starts_with("Paste refused")), "{:?}", a.notice);
+        // Replacing a selection is judged on the result.
+        let _ = a.update(Message::Edit(text_editor::Action::SelectAll));
+        edit(&mut a, Edit::Paste(Arc::new("123456789".to_owned())));
+        assert_eq!(a.content.text(), "abcdefgh", "nine bytes for eight: refused");
+        edit(&mut a, Edit::Paste(Arc::new("12345678".to_owned())));
+        assert_eq!(a.content.text(), "12345678");
+        let _ = a.update(Message::Edit(text_editor::Action::SelectAll));
+        edit(&mut a, Edit::Insert('z'));
+        assert_eq!(a.content.text(), "z");
+        type_text(&mut a, "1234567");
+        assert_eq!(a.content.text(), "z1234567");
+        // Deletions always go through, and make room again.
+        edit(&mut a, Edit::Backspace);
+        assert_eq!(a.content.text(), "z123456");
+        edit(&mut a, Edit::Enter);
+        assert_eq!(a.content.text(), "z123456\n");
+        // Undo and redo move between states that were all within the limit.
+        let _ = a.update(Message::Undo);
+        let _ = a.update(Message::Redo);
+        assert!(a.text.len() as u64 <= a.size_limit);
+    }
+
+    /// Audit W01: the Open limit is inclusive and matches the edit guard: a document of
+    /// exactly the limit saves through the real writer and reopens through the real
+    /// reader; one byte more is refused.
+    #[test]
+    fn the_open_limit_is_inclusive() {
+        let dir = temp_dir("limit");
+        let path = dir.join("max.md");
+        let text = "x".repeat(MAX_DOCUMENT_BYTES as usize);
+        save_file(&path, &text).unwrap();
+        let (_, loaded) = load_file(path.clone()).unwrap();
+        assert_eq!(loaded.len(), text.len());
+        std::fs::write(&path, format!("{text}y")).unwrap();
+        let err = load_file(path).unwrap_err();
+        assert!(err.contains("larger than"), "{err}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

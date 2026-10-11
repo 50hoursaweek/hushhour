@@ -3,10 +3,12 @@
 //! The content goes to a temporary file created exclusively (so a pre-existing
 //! path or symlink at that name can never be followed or overwritten), with a
 //! private mode from the start, is flushed to disk, takes over the target's
-//! permissions and is then renamed over the target; the directory is synced so
-//! the rename itself survives a crash. On any failure the target is untouched
-//! and the temporary file, which this call created, is removed. There is no
-//! fallback to writing in place.
+//! permissions and is then renamed over the target. The directory is then synced
+//! on a best-effort basis, so that the rename itself normally survives a crash;
+//! a failure of that final sync is not reported, the data and the rename having
+//! already succeeded. On any failure before that the target is untouched and the
+//! temporary file, which this call created, is removed. There is no fallback to
+//! writing in place.
 //!
 //! A target that is a symbolic link is resolved first, so the real file is
 //! replaced and the link keeps pointing at it.
@@ -41,6 +43,8 @@ pub fn write(target: &Path, bytes: &[u8]) -> io::Result<()> {
         }
         std::fs::rename(&temp, &target)?;
         // Make the new directory entry durable too; not all filesystems support syncing a directory.
+        // Best effort: the content is on disk and the rename is done; a directory sync
+        // that fails here is not something the caller can act on.
         if let Ok(d) = std::fs::File::open(&dir) {
             let _ = d.sync_all();
         }
