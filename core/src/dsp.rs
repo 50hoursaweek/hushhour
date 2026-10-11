@@ -2,8 +2,8 @@
 
 use std::f32::consts::TAU;
 
-use crate::sound::RATE;
-
+/// Output sample rate of every generator and of the mixer.
+pub const RATE: u32 = 44_100;
 pub const SR: f32 = RATE as f32;
 
 /// One-pole low-pass filter.

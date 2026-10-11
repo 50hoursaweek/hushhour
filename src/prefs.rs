@@ -7,7 +7,7 @@ use iced::Font;
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 
 use crate::highlight::FocusMode;
-use crate::music::Music;
+use hushhour_core::music::Music;
 use crate::palette::ThemeKind;
 
 pub const MIN_SIZE: f32 = 12.0;

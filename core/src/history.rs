@@ -3,7 +3,12 @@
 
 use std::time::{Duration, Instant};
 
-use iced::advanced::text::editor::Position;
+/// A caret position: line index and byte column within the line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Position {
+    pub line: usize,
+    pub column: usize,
+}
 
 const COALESCE_WINDOW: Duration = Duration::from_millis(1500);
 /// Undo steps kept; the oldest are dropped beyond this so history cannot grow without bound.

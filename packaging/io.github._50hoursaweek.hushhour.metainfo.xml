@@ -33,15 +33,15 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.0/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.1/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.0/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.1/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.0/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.1/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -57,6 +57,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.2.1" date="2026-10-11">
+      <description>
+        <p>The platform-independent part of the app (Markdown scanning, statistics, undo history, soundscapes) is now a separate crate shared with the iPad version. No change in behaviour.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-11">
       <description>
         <p>The app is now called HushHour, with a new icon. Settings and the recent-files list from Inkpad are carried over.</p>

@@ -1,7 +1,7 @@
 //! Background soundscapes for focus: generated ambiences that loop forever,
 //! and the user's own tracks decoded from files.
 //!
-//! Everything renders stereo interleaved f32 at [`crate::sound::RATE`].
+//! Everything renders stereo interleaved f32 at [`crate::dsp::RATE`].
 
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
@@ -17,7 +17,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use crate::dsp::{BandPass, LowPass, SR};
-use crate::sound::Rng;
+use crate::rng::Rng;
 
 /// What plays in the background.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +95,7 @@ fn bundled_music_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let candidates = [
         exe.parent()?.join("../share/hushhour/music"),
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/music"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/music"),
     ];
     candidates.into_iter().find(|p| p.is_dir())
 }
@@ -960,7 +960,7 @@ impl Source for FileSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sound::RATE;
+    use crate::dsp::RATE;
 
     /// Every generator must produce a sane, finite signal at a modest level.
     #[test]

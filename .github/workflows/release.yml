@@ -26,7 +26,7 @@ jobs:
       - name: Run the tests
         env:
           HUSHHOUR_BUILD: ci-${{ github.run_number }}
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
   appimage:
     needs: test

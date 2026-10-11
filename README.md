@@ -7,6 +7,15 @@ the page is the whole window, a spotlight dims everything but what you are writi
 the caret line can be anchored mid-screen, three fonts (mono, sans, serif) suit different
 moods, and typing sounds and soundscapes keep you company.
 
+## Layout
+
+The repository is a Cargo workspace. `core/` is the `hushhour-core` crate: the platform-
+independent part (Markdown scanning, statistics, undo history, soundscapes and file decoding)
+that the ports share with this Linux app. The root crate is the Linux app itself: the iced
+editor, the ALSA mixer, Wayland frosted glass, preferences and packaging. Run tests with
+`cargo test --workspace`. The document-safety rules every port must keep are in
+`docs/document-safety.md`.
+
 ## Build and run
 
 Requires a Rust toolchain (`rustup`), a C linker, and a Wayland or X11 session with Vulkan.

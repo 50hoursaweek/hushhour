@@ -1448,20 +1448,28 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "hushhour"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cosmic-text",
  "dirs",
+ "hushhour-core",
  "iced",
  "libloading 0.9.0",
  "pulldown-cmark",
  "raw-window-handle",
  "rfd",
  "smol_str",
- "symphonia",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols-plasma",
+]
+
+[[package]]
+name = "hushhour-core"
+version = "0.2.1"
+dependencies = [
+ "dirs",
+ "symphonia",
 ]
 
 [[package]]

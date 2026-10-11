@@ -70,6 +70,14 @@ The Rust code is 7.4k lines. By module:
 | `main.rs`, `editor/` | rewrite | iced UI and a vendored iced text editor. iced does not target iOS/iPadOS; do not try to run it there. |
 | `frost.rs` | replace | Wayland-only. |
 
+**Shared crate (since v0.2.1):** the pure modules live in `core/` as the `hushhour-core` crate
+(`markdown` scanner, `stats`, `history` with its own `Position`, `music` generators and
+`FileSource`, `dsp` with `RATE`, `rng`). Depend on it by git tag (`git = "https://github.com/50hoursaweek/hushhour", tag = "v0.2.1"`, package `hushhour-core`)
+or as a submodule; do not vendor copies any more. Fixes land there for both apps. The audio
+mixer (`src/sound.rs`) stays in the Linux app for now because it is written around the ALSA
+device loop; ask Ink if you want the device-independent part split out too. The rules every
+port must keep are in `docs/document-safety.md`.
+
 Recommended architecture: a **native SwiftUI/UIKit app** with the text view on `UITextView`
 (TextKit 2) and a **Rust core** (`highlight`, `stats`, `history`, `music`, `dsp`, the mixer) built
 as a static library for `aarch64-apple-ios` and `aarch64-apple-ios-sim`, bridged with **UniFFI**

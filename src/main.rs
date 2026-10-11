@@ -1,17 +1,13 @@
 //! HushHour: a quiet Markdown editor for Linux, built with iced.
 
 mod atomic;
-mod dsp;
 mod editor;
 mod frost;
 mod highlight;
-mod history;
-mod music;
 mod palette;
 mod prefs;
 mod recent;
 mod sound;
-mod stats;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,7 +22,8 @@ use iced::widget::{
 use iced::window;
 
 use editor::widget::{self as text_editor, TextEditor};
-use history::{History, position_at};
+use hushhour_core::history::{History, position_at};
+use hushhour_core::{history, music, stats};
 use iced::{Background, Border, Color, Element, Font, Length, Padding, Shadow, Subscription, Task, Theme, Vector};
 
 use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence_at};
@@ -387,7 +384,7 @@ impl HushHour {
                 if is_edit {
                     let new_text = self.content.text();
                     let after = self.content.cursor().position;
-                    if self.history.record(&self.text, &new_text, before, after) {
+                    if self.history.record(&self.text, &new_text, core_pos(before), core_pos(after)) {
                         self.edits += 1;
                         self.notice = None;
                     }
@@ -400,13 +397,13 @@ impl HushHour {
             }
             Message::Undo => {
                 if let Some(d) = self.history.undo() {
-                    self.apply(d.offset, d.inserted.len(), &d.removed, d.cursor_before);
+                    self.apply(d.offset, d.inserted.len(), &d.removed, iced_pos(d.cursor_before));
                 }
                 Task::none()
             }
             Message::Redo => {
                 if let Some(d) = self.history.redo() {
-                    self.apply(d.offset, d.removed.len(), &d.inserted, d.cursor_after);
+                    self.apply(d.offset, d.removed.len(), &d.inserted, iced_pos(d.cursor_after));
                 }
                 Task::none()
             }
@@ -956,11 +953,11 @@ impl HushHour {
     /// Replace `remove_len` bytes at `offset` with `insert`, then place the cursor.
     /// Used to apply undo and redo steps through the editor's own actions.
     fn apply(&mut self, offset: usize, remove_len: usize, insert: &str, cursor: Position) {
-        let start = position_at(&self.text, offset);
+        let start = iced_pos(position_at(&self.text, offset));
         // Collapse any selection first; a stale one would be replaced by the paste.
         self.content.perform(text_editor::Action::Move(Motion::Left));
         if remove_len > 0 {
-            let end = position_at(&self.text, offset + remove_len);
+            let end = iced_pos(position_at(&self.text, offset + remove_len));
             self.content.move_to(Cursor { position: start, selection: Some(end) });
             self.content.perform(text_editor::Action::Edit(Edit::Delete));
         } else {
@@ -1795,6 +1792,15 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
 
 /// Documents larger than this are refused rather than loaded into the editor.
 const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
+
+/// The shared history keeps its own caret type; the editor uses iced's. Same fields.
+fn core_pos(p: Position) -> history::Position {
+    history::Position { line: p.line, column: p.column }
+}
+
+fn iced_pos(p: history::Position) -> Position {
+    Position { line: p.line, column: p.column }
+}
 
 /// Whether replacing `selected` bytes of a `current`-byte document with `added` bytes
 /// keeps the document within `limit`. Overflow counts as too big.

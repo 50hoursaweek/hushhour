@@ -1,12 +1,16 @@
 [package]
 name = "hushhour"
-version = "0.2.0"
+version = "0.2.1"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
 repository = "https://github.com/50hoursaweek/hushhour"
 edition = "2024"
 
+[workspace]
+members = ["core"]
+
 [dependencies]
+hushhour-core = { path = "core" }
 cosmic-text = "0.15"
 dirs = "6"
 iced = { version = "0.14", features = ["advanced", "tokio", "image"] }
@@ -15,7 +19,6 @@ pulldown-cmark = "0.13"
 raw-window-handle = "0.6"
 rfd = "0.17"
 smol_str = "0.2"
-symphonia = { version = "0.5", features = ["mp3"] }
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-client = "0.31"
 wayland-protocols-plasma = { version = "0.3", features = ["client"] }
