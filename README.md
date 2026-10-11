@@ -42,7 +42,7 @@ dependencies.
 | Ctrl+= / Ctrl+- | Zoom |
 | F11 | Toggle fullscreen |
 | Ctrl+Shift+D | Toggle window decorations (off by default) |
-| Ctrl+Q / Ctrl+W | Quit |
+| Ctrl+Q / Ctrl+W | Quit (asks what to do with unsaved changes, as do New, Open and the window's close button) |
 
 The window has no title bar. Drag the top strip or the status bar to move it,
 double-click the top strip to maximise, and use your compositor's resize

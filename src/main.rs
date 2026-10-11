@@ -68,9 +68,19 @@ const WINDOW_SIZE: (f32, f32) = (1100.0, 780.0);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Dialog {
     Welcome,
+    /// Asks what to do with unsaved changes before `Pending` goes ahead.
+    Unsaved(Pending),
     Appearance,
     Sound,
     About,
+}
+
+/// An action that would lose unsaved changes and therefore waits for the user's answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pending {
+    Quit,
+    New,
+    Open,
 }
 
 struct Inkpad {
@@ -87,6 +97,8 @@ struct Inkpad {
     music_options: Vec<Music>,
     menu_open: bool,
     dialog: Option<Dialog>,
+    /// Set while a save is in flight on behalf of a pending action; it runs once the save succeeds.
+    after_save: Option<Pending>,
     /// Compositor effects for the window; `None` until attached or when not on Wayland.
     frost: Option<frost::Frost>,
     frost_attach_started: bool,
@@ -147,6 +159,10 @@ enum Message {
     SetMusicVolume(f32),
     SetShowWelcome(bool),
     OpenRepository,
+    /// Carry out a pending action without saving.
+    Discard(Pending),
+    /// Save first, then carry out the pending action.
+    SaveThen(Pending),
     FrostAttached(Option<frost::Frost>),
     SetFrost(bool),
     SetFrostTransparency(f32),
@@ -171,6 +187,7 @@ impl Inkpad {
             music_options: Vec::new(),
             menu_open: false,
             dialog: None,
+            after_save: None,
             frost: None,
             frost_attach_started: false,
             fullscreen: false,
@@ -198,6 +215,7 @@ impl Inkpad {
                 "--dialog=sound" => app.dialog = Some(Dialog::Sound),
                 "--dialog=about" => app.dialog = Some(Dialog::About),
                 "--dialog=welcome" => app.dialog = Some(Dialog::Welcome),
+                "--dialog=unsaved" => app.dialog = Some(Dialog::Unsaved(Pending::Quit)),
                 "--soundtest" => tasks.push(Task::done(Message::SoundTest)),
                 "--end" => tasks.push(Task::done(Message::CursorToEnd)),
                 "--selftest" => tasks.push(Task::done(Message::SelfTest)),
@@ -261,11 +279,29 @@ impl Inkpad {
                 Task::none()
             }
             Message::New => {
+                if self.dirty {
+                    return self.ask_unsaved(Pending::New);
+                }
                 self.load(String::new());
                 self.path = None;
                 Task::none()
             }
-            Message::Open => Task::perform(open_dialog(), Message::Opened),
+            Message::Open => {
+                if self.dirty {
+                    return self.ask_unsaved(Pending::Open);
+                }
+                Task::perform(open_dialog(), Message::Opened)
+            }
+            Message::Discard(pending) => {
+                self.dialog = None;
+                self.dirty = false;
+                self.proceed(pending)
+            }
+            Message::SaveThen(pending) => {
+                self.dialog = None;
+                self.after_save = Some(pending);
+                self.update(Message::Save)
+            }
             Message::Opened(Some((path, text))) => {
                 self.load(text.replace("\r\n", "\n"));
                 self.path = Some(path);
@@ -281,9 +317,14 @@ impl Inkpad {
                 self.path = Some(path);
                 self.dirty = false;
                 self.notice = Some("Saved".to_owned());
-                Task::none()
+                match self.after_save.take() {
+                    Some(pending) => self.proceed(pending),
+                    None => Task::none(),
+                }
             }
             Message::Saved(Err(e)) => {
+                // A cancelled Save As also lands here: the pending action is dropped.
+                self.after_save = None;
                 self.notice = Some(format!("Save failed: {e}"));
                 Task::none()
             }
@@ -431,7 +472,12 @@ impl Inkpad {
                 let mode = if self.fullscreen { window::Mode::Fullscreen } else { window::Mode::Windowed };
                 window::latest().and_then(move |id| window::set_mode(id, mode))
             }
-            Message::Quit => iced::exit(),
+            Message::Quit => {
+                if self.dirty {
+                    return self.ask_unsaved(Pending::Quit);
+                }
+                iced::exit()
+            }
             Message::CursorToEnd => {
                 self.content.perform(text_editor::Action::Move(Motion::DocumentEnd));
                 self.refresh_focus();
@@ -466,6 +512,26 @@ impl Inkpad {
                     None => Task::none(),
                 }
             }
+        }
+    }
+
+    /// Show the unsaved-changes dialog for `pending`, closing the menu.
+    fn ask_unsaved(&mut self, pending: Pending) -> Task<Message> {
+        self.menu_open = false;
+        self.dialog = Some(Dialog::Unsaved(pending));
+        Task::none()
+    }
+
+    /// Carry out an action that was waiting on the unsaved-changes dialog.
+    fn proceed(&mut self, pending: Pending) -> Task<Message> {
+        match pending {
+            Pending::Quit => iced::exit(),
+            Pending::New => {
+                self.load(String::new());
+                self.path = None;
+                Task::none()
+            }
+            Pending::Open => Task::perform(open_dialog(), Message::Opened),
         }
     }
 
@@ -586,6 +652,19 @@ impl Inkpad {
         step(self, edit(Edit::Backspace), "Hello X.\nSecond line. More\nNewè", "bs 1")?;
         step(self, edit(Edit::Backspace), "Hello X.\nSecond line. More\nNew", "bs 2")?;
         step(self, Message::Undo, "Hello X.\nSecond line. More\nNewè!", "undo both backspaces")?;
+
+        // Quitting, New and Open with unsaved changes must ask instead of acting.
+        for (msg, pending) in [(Message::Quit, Pending::Quit), (Message::New, Pending::New), (Message::Open, Pending::Open)] {
+            self.dialog = None;
+            let _ = self.update(msg);
+            if self.dialog != Some(Dialog::Unsaved(pending)) {
+                return Err(format!("{pending:?} with unsaved changes did not ask"));
+            }
+            if self.content.text().is_empty() {
+                return Err("document was lost".to_owned());
+            }
+        }
+        self.dialog = None;
         Ok(())
     }
 
@@ -792,6 +871,19 @@ impl Inkpad {
                 .spacing(8)
                 .into(),
             ),
+            Dialog::Unsaved(_) => (
+                "Unsaved changes",
+                column![
+                    text(match self.path.as_ref().and_then(|p| p.file_name()) {
+                        Some(name) => format!("Save the changes to {}?", name.to_string_lossy()),
+                        None => "This document has not been saved yet. Save it?".to_owned(),
+                    })
+                    .size(14.0)
+                    .font(UI_FONT)
+                    .width(Length::Fill)
+                ]
+                .into(),
+            ),
             Dialog::About => (
                 "",
                 column![
@@ -811,6 +903,7 @@ impl Inkpad {
         let done = dialog_button("Done", Message::CloseMenu);
         let width = match dialog {
             Dialog::About => 260.0,
+            Dialog::Unsaved(_) => 360.0,
             Dialog::Welcome => 440.0,
             _ => 380.0,
         };
@@ -818,7 +911,17 @@ impl Inkpad {
         if !title.is_empty() {
             card = card.push(text(title).size(17.0).font(UI_FONT));
         }
-        let buttons: Element<'_, Message> = if dialog == Dialog::Welcome {
+        let buttons: Element<'_, Message> = if let Dialog::Unsaved(pending) = dialog {
+            row![
+                dialog_button("Don't save", Message::Discard(pending)),
+                space().width(Length::Fill),
+                dialog_button("Cancel", Message::CloseMenu),
+                dialog_button("Save", Message::SaveThen(pending)),
+            ]
+            .spacing(8)
+            .width(Length::Fill)
+            .into()
+        } else if dialog == Dialog::Welcome {
             row![
                 space().width(Length::Fill),
                 dialog_button("Sound and music…", Message::OpenDialog(Dialog::Sound)),
@@ -845,7 +948,9 @@ impl Inkpad {
             window::Event::Resized(size) => Some(Message::WindowResized(size)),
             _ => None,
         });
-        Subscription::batch([keys, resizes])
+        // The window's close button goes through the unsaved-changes guard too.
+        let closes = window::close_requests().map(|_| Message::Quit);
+        Subscription::batch([keys, resizes, closes])
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1277,6 +1382,7 @@ pub fn main() -> iced::Result {
         .window_size(WINDOW_SIZE)
         .decorations(false)
         .transparent(true)
+        .exit_on_close_request(false)
         .antialiasing(true)
         .run()
 }
