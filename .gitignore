@@ -6,3 +6,5 @@ assets/*-utc/
 # Secrets: never committed. Put OPENROUTER_API_KEY=... in .env for packaging/gen-tracks.py.
 .env
 *.key
+# Claude Code local state (permissions etc.); conversations live under ~/.claude, outside the repo.
+.claude/
