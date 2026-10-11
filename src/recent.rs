@@ -8,10 +8,17 @@ fn path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("inkpad").join("recent"))
 }
 
+/// The list file is tiny; anything bigger is ignored rather than parsed.
+const MAX_FILE_BYTES: u64 = 64 * 1024;
+
 /// Load the list, dropping files that no longer exist.
 pub fn load() -> Vec<PathBuf> {
-    let Some(text) = path().and_then(|p| std::fs::read_to_string(p).ok()) else { return Vec::new() };
-    text.lines().map(PathBuf::from).filter(|p| p.is_file()).take(MAX).collect()
+    let Some(p) = path() else { return Vec::new() };
+    if std::fs::metadata(&p).map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+        return Vec::new();
+    }
+    let Ok(text) = std::fs::read_to_string(&p) else { return Vec::new() };
+    text.lines().filter(|l| !l.is_empty()).map(PathBuf::from).filter(|p| p.is_file()).take(MAX).collect()
 }
 
 /// Move `file` to the front of the list and persist it.
@@ -22,11 +29,15 @@ pub fn push(list: &mut Vec<PathBuf>, file: &Path) {
     list.insert(0, file);
     list.truncate(MAX);
     if let Some(p) = path() {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let text: String = list.iter().map(|p| format!("{}\n", p.display())).collect();
-        let _ = std::fs::write(p, text);
+        // One path per line: names that cannot be written that way (a newline, or
+        // bytes that are not UTF-8) stay in the menu for this session but are not persisted.
+        let text: String = list
+            .iter()
+            .filter_map(|p| p.to_str())
+            .filter(|s| !s.contains(['\n', '\r']))
+            .map(|s| format!("{s}\n"))
+            .collect();
+        let _ = crate::prefs::write_atomic(&p, &text);
     }
 }
 

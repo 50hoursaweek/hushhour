@@ -135,6 +135,12 @@ pub trait Source: Send {
     fn fade_seconds(&self) -> (f32, f32) {
         (1.5, 1.5)
     }
+
+    /// True once the source can produce nothing more (a file that failed); the
+    /// mixer then drops it.
+    fn finished(&self) -> bool {
+        false
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -663,34 +669,48 @@ impl Source for Drone {
 /// -12 dB, applied to every file track.
 const FILE_GAIN: f32 = 0.25;
 
+/// Frames per chunk handed from the decoder thread to the mixer (about 90 ms at 44.1 kHz).
+const CHUNK_FRAMES: usize = 4096;
+/// Chunks the decoder may run ahead; bounds memory and keeps a track switch quick.
+const CHUNK_QUEUE: usize = 8;
+/// Consecutive undecodable packets before a file is given up on.
+const MAX_DECODE_ERRORS: usize = 100;
+
+enum Decoded {
+    Frames(Vec<[f32; 2]>),
+    /// The file could not be read or decoded any further.
+    Failed,
+}
+
+/// A file from the music directory, looped. Decoding runs on its own thread and
+/// hands bounded chunks to the mixer, which never blocks on it: when the decoder
+/// falls behind, the mixer plays silence until it catches up.
 pub struct FileSource {
-    path: PathBuf,
-    reader: Box<dyn FormatReader>,
-    decoder: Box<dyn Decoder>,
-    track_id: u32,
-    channels: usize,
+    rx: std::sync::mpsc::Receiver<Decoded>,
     /// Source frames per output frame; 1.0 when the file is at the output rate.
     rate: f32,
     /// Decoded, interleaved stereo at the file's rate, waiting to be resampled.
     pending: VecDeque<[f32; 2]>,
     position: f32,
     last: [f32; 2],
+    failed: bool,
 }
 
 impl FileSource {
+    /// Probe the file (quick, and the only part done on the caller's thread) and
+    /// start the decoder thread.
     pub fn open(path: &Path) -> Option<Self> {
-        let (reader, decoder, track_id, channels, sample_rate) = Self::open_streams(path)?;
-        Some(Self {
-            path: path.to_owned(),
-            reader,
-            decoder,
-            track_id,
-            channels,
-            rate: sample_rate as f32 / SR,
-            pending: VecDeque::new(),
-            position: 0.0,
-            last: [0.0; 2],
-        })
+        if !std::fs::metadata(path).ok()?.is_file() {
+            return None;
+        }
+        let (_, _, _, _, sample_rate) = Self::open_streams(path)?;
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Decoded>(CHUNK_QUEUE);
+        let path = path.to_owned();
+        std::thread::Builder::new()
+            .name("inkpad-decode".into())
+            .spawn(move || decode_worker(&path, tx))
+            .ok()?;
+        Some(Self { rx, rate: sample_rate as f32 / SR, pending: VecDeque::new(), position: 0.0, last: [0.0; 2], failed: false })
     }
 
     #[allow(clippy::type_complexity)]
@@ -715,40 +735,74 @@ impl FileSource {
         Some((reader, decoder, track_id, channels, sample_rate))
     }
 
-    /// Decode packets until at least `frames` are pending; loop at the end of the file.
-    fn refill(&mut self, frames: usize) {
-        let mut restarted = false;
-        while self.pending.len() < frames {
-            let packet = match self.reader.next_packet() {
+    /// Take whatever the decoder has ready, without waiting for it.
+    fn pull(&mut self, frames: usize) {
+        while self.pending.len() < frames && !self.failed {
+            match self.rx.try_recv() {
+                Ok(Decoded::Frames(chunk)) => self.pending.extend(chunk),
+                Ok(Decoded::Failed) => self.failed = true,
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.failed = true,
+            }
+        }
+    }
+}
+
+/// Decode `path` over and over (the track loops), sending chunks until the
+/// receiver is dropped or the file gives up.
+fn decode_worker(path: &Path, tx: std::sync::mpsc::SyncSender<Decoded>) {
+    let mut chunk: Vec<[f32; 2]> = Vec::with_capacity(CHUNK_FRAMES);
+    let mut buf: Option<SampleBuffer<f32>> = None;
+    loop {
+        let Some((mut reader, mut decoder, track_id, channels, _)) = FileSource::open_streams(path) else {
+            let _ = tx.send(Decoded::Failed);
+            return;
+        };
+        let mut errors = 0;
+        loop {
+            let packet = match reader.next_packet() {
                 Ok(p) => p,
+                // End of file (symphonia reports it as an error): start over to loop.
+                Err(_) => break,
+            };
+            if packet.track_id() != track_id {
+                continue;
+            }
+            let decoded = match decoder.decode(&packet) {
+                Ok(d) => {
+                    errors = 0;
+                    d
+                }
                 Err(_) => {
-                    if restarted {
+                    errors += 1;
+                    if errors > MAX_DECODE_ERRORS {
+                        let _ = tx.send(Decoded::Failed);
                         return;
                     }
-                    // End of file (or a read error): reopen from the start to loop.
-                    let Some((reader, decoder, track_id, channels, rate)) = Self::open_streams(&self.path) else {
-                        return;
-                    };
-                    self.reader = reader;
-                    self.decoder = decoder;
-                    self.track_id = track_id;
-                    self.channels = channels;
-                    self.rate = rate as f32 / SR;
-                    restarted = true;
                     continue;
                 }
             };
-            if packet.track_id() != self.track_id {
-                continue;
-            }
-            let Ok(decoded) = self.decoder.decode(&packet) else { continue };
-            let mut buf = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
-            buf.copy_interleaved_ref(decoded);
-            for frame in buf.samples().chunks(self.channels) {
+            let spec = *decoded.spec();
+            let capacity = decoded.capacity() as u64;
+            let sample_buf = match &mut buf {
+                Some(b) if b.capacity() >= capacity as usize * channels => b,
+                _ => buf.insert(SampleBuffer::<f32>::new(capacity, spec)),
+            };
+            sample_buf.copy_interleaved_ref(decoded);
+            for frame in sample_buf.samples().chunks(channels) {
                 let l = frame.first().copied().unwrap_or(0.0);
                 let r = frame.get(1).copied().unwrap_or(l);
-                self.pending.push_back([l, r]);
+                chunk.push([l, r]);
+                if chunk.len() >= CHUNK_FRAMES {
+                    // Blocks while the queue is full: that is the pacing.
+                    if tx.send(Decoded::Frames(std::mem::replace(&mut chunk, Vec::with_capacity(CHUNK_FRAMES)))).is_err() {
+                        return; // the source was dropped
+                    }
+                }
             }
+        }
+        if !chunk.is_empty() && tx.send(Decoded::Frames(std::mem::take(&mut chunk))).is_err() {
+            return;
         }
     }
 }
@@ -756,15 +810,27 @@ impl FileSource {
 impl Source for FileSource {
     fn fill(&mut self, out: &mut [f32]) {
         let needed = (out.len() / 2) as f32 * self.rate + 2.0;
-        self.refill(needed as usize + 1);
+        self.pull(needed as usize + 1);
         for frame in out.chunks_mut(2) {
             // Linear interpolation between the last consumed frame and the next pending one.
+            let mut starved = false;
             while self.position >= 1.0 {
                 match self.pending.pop_front() {
                     Some(next) => self.last = next,
-                    None => break,
+                    None => {
+                        starved = true;
+                        break;
+                    }
                 }
                 self.position -= 1.0;
+            }
+            if starved || self.failed {
+                // Nothing ready: silence, and a clean restart of the interpolation.
+                self.position = 0.0;
+                self.last = [0.0; 2];
+                frame[0] = 0.0;
+                frame[1] = 0.0;
+                continue;
             }
             let next = self.pending.front().copied().unwrap_or(self.last);
             let t = self.position;
@@ -774,6 +840,10 @@ impl Source for FileSource {
             frame[1] = (self.last[1] + (next[1] - self.last[1]) * t) * FILE_GAIN;
             self.position += self.rate;
         }
+    }
+
+    fn finished(&self) -> bool {
+        self.failed && self.pending.is_empty()
     }
 }
 
@@ -827,11 +897,16 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
 
         let mut source = FileSource::open(&path).expect("open wav");
+        // Decoding happens on a worker thread; give it a moment to fill the queue.
+        std::thread::sleep(std::time::Duration::from_millis(300));
         // Pull 2 s at 44.1 kHz: four passes over the file.
         let mut buf = vec![0f32; 2 * RATE as usize * 2];
         for chunk in buf.chunks_mut(882) {
             source.fill(chunk);
+            // Mimic real-time consumption so the decoder keeps ahead.
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
+        assert!(!source.finished());
         let rms = (buf.iter().map(|s| s * s).sum::<f32>() / buf.len() as f32).sqrt();
         assert!((rms - 0.5 / 2f32.sqrt() * FILE_GAIN).abs() < 0.01, "rms {rms}");
         // Both channels carry the mono signal.

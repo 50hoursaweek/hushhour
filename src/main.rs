@@ -69,6 +69,7 @@ const WINDOW_SIZE: (f32, f32) = (1100.0, 780.0);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Dialog {
     Welcome,
+    Credits,
     /// Asks what to do with unsaved changes before `Pending` goes ahead.
     Unsaved(Pending),
     Appearance,
@@ -84,15 +85,29 @@ enum Pending {
     Open,
     /// Open the file held in `Inkpad::pending_path`.
     OpenRecent,
+    /// Replace the document with the already loaded file in `Inkpad::pending_open`.
+    Replace,
 }
 
 struct Inkpad {
     content: text_editor::Content,
     /// Cached copy of the document, kept in sync after every edit.
     text: String,
+    /// The text as last loaded or saved; the document is dirty when `text` differs from it.
+    saved_text: Arc<String>,
     history: History,
     path: Option<PathBuf>,
     dirty: bool,
+    /// Bumped whenever the document is replaced; results of older requests are ignored.
+    generation: u64,
+    /// Bumped on every edit; lets a "Don't save" answer authorise one specific replacement.
+    edits: u64,
+    /// Set by "Don't save" for an Open: the (generation, edits) state that may be replaced.
+    replace_authorised: Option<(u64, u64)>,
+    /// A file that finished loading while the document had new changes; waits for an answer.
+    pending_open: Option<(PathBuf, Arc<String>)>,
+    /// True while a write is in flight; a second Save waits for it.
+    saving: bool,
     prefs: Preferences,
     sound: sound::Sound,
     music_dirs: MusicDirs,
@@ -123,11 +138,13 @@ enum Message {
     Edit(text_editor::Action),
     New,
     Open,
-    Opened(Option<(PathBuf, Arc<String>)>),
+    /// A file finished loading (or failed) for the document generation it was requested in.
+    Opened { generation: u64, result: Result<(PathBuf, Arc<String>), String> },
     OpenRecent(PathBuf),
     Save,
     SaveAs,
-    Saved(Result<PathBuf, String>),
+    /// A write finished; carries the generation and the exact text that was written.
+    Saved { generation: u64, text: Arc<String>, result: Result<PathBuf, String> },
     CycleFocus,
     ToggleTypewriter,
     CycleTheme,
@@ -171,6 +188,9 @@ enum Message {
     /// Save first, then carry out the pending action.
     SaveThen(Pending),
     FrostAttached(Option<frost::Frost>),
+    /// Persist the preferences (sliders call this on release rather than on every tick).
+    SavePrefs,
+    OpenLicences,
     SetFrost(bool),
     SetFrostTransparency(f32),
     SetFrostThickness(f32),
@@ -185,9 +205,15 @@ impl Inkpad {
         let app = Self {
             content: text_editor::Content::new(),
             text: String::new(),
+            saved_text: Arc::new(String::new()),
             history: History::default(),
             path: None,
             dirty: false,
+            generation: 0,
+            edits: 0,
+            replace_authorised: None,
+            pending_open: None,
+            saving: false,
             prefs: Preferences::load(),
             sound: sound::Sound::start(music_dirs.clone()),
             music_dirs,
@@ -216,20 +242,40 @@ impl Inkpad {
         // Music is never started automatically; only its volume is remembered.
         app.sound.set_music_volume(app.prefs.music_volume);
         let mut tasks = vec![iced::widget::operation::focus_next()];
-        for arg in std::env::args().skip(1) {
-            match arg.as_str() {
-                "--anchor" => app.prefs.typewriter = true,
-                "--menu" => app.menu_open = true,
-                "--dialog=appearance" => app.dialog = Some(Dialog::Appearance),
-                "--dialog=sound" => app.dialog = Some(Dialog::Sound),
-                "--dialog=about" => app.dialog = Some(Dialog::About),
-                "--dialog=welcome" => app.dialog = Some(Dialog::Welcome),
-                "--dialog=unsaved" => app.dialog = Some(Dialog::Unsaved(Pending::Quit)),
-                "--soundtest" => tasks.push(Task::done(Message::SoundTest)),
-                "--end" => tasks.push(Task::done(Message::CursorToEnd)),
-                "--selftest" => tasks.push(Task::done(Message::SelfTest)),
-                path => tasks.push(Task::perform(read_file(PathBuf::from(path)), Message::Opened)),
+        // Options come before `--`; everything after it, and anything not starting with
+        // `--`, is a path. Paths stay as OS strings: Linux file names need not be UTF-8.
+        let mut options_done = false;
+        let mut file: Option<PathBuf> = None;
+        for arg in std::env::args_os().skip(1) {
+            let option = (!options_done).then(|| arg.to_str().filter(|a| a.starts_with("--"))).flatten();
+            match option {
+                Some("--") => options_done = true,
+                Some("--anchor") => app.prefs.typewriter = true,
+                Some("--menu") => app.menu_open = true,
+                Some("--dialog=appearance") => app.dialog = Some(Dialog::Appearance),
+                Some("--dialog=sound") => app.dialog = Some(Dialog::Sound),
+                Some("--dialog=about") => app.dialog = Some(Dialog::About),
+                Some("--dialog=welcome") => app.dialog = Some(Dialog::Welcome),
+                Some("--dialog=unsaved") => app.dialog = Some(Dialog::Unsaved(Pending::Quit)),
+                Some("--soundtest") => tasks.push(Task::done(Message::SoundTest)),
+                Some("--end") => tasks.push(Task::done(Message::CursorToEnd)),
+                Some("--selftest") => tasks.push(Task::done(Message::SelfTest)),
+                Some(other) => {
+                    eprintln!("inkpad: unknown option {other}");
+                    std::process::exit(2);
+                }
+                None => {
+                    // Only the first file opens; a second one would race the first.
+                    if file.is_none() {
+                        file = Some(PathBuf::from(arg));
+                    } else {
+                        eprintln!("inkpad: ignoring extra path {}", PathBuf::from(arg).display());
+                    }
+                }
             }
+        }
+        if let Some(path) = file {
+            tasks.push(app.read(path));
         }
         (app, Task::batch(tasks))
     }
@@ -279,11 +325,12 @@ impl Inkpad {
                     let new_text = self.content.text();
                     let after = self.content.cursor().position;
                     if self.history.record(&self.text, &new_text, before, after) {
-                        self.dirty = true;
+                        self.edits += 1;
                         self.notice = None;
                     }
                     self.stats = stats::compute(&new_text);
                     self.text = new_text;
+                    self.update_dirty();
                 }
                 self.refresh_focus();
                 Task::none()
@@ -304,19 +351,27 @@ impl Inkpad {
                 if self.dirty {
                     return self.ask_unsaved(Pending::New);
                 }
-                self.load(String::new());
-                self.path = None;
-                Task::none()
+                self.proceed(Pending::New)
             }
             Message::Open => {
                 if self.dirty {
                     return self.ask_unsaved(Pending::Open);
                 }
-                Task::perform(open_dialog(), Message::Opened)
+                self.proceed(Pending::Open)
+            }
+            Message::OpenRecent(path) => {
+                if self.dirty {
+                    self.pending_path = Some(path);
+                    return self.ask_unsaved(Pending::OpenRecent);
+                }
+                self.read(path)
             }
             Message::Discard(pending) => {
                 self.dialog = None;
-                self.dirty = false;
+                // The document is not marked clean here: if the replacement never happens
+                // (cancelled chooser, unreadable file) its unsaved changes stay protected.
+                // Instead this exact state is authorised to be replaced once.
+                self.replace_authorised = Some((self.generation, self.edits));
                 self.proceed(pending)
             }
             Message::SaveThen(pending) => {
@@ -324,40 +379,79 @@ impl Inkpad {
                 self.after_save = Some(pending);
                 self.update(Message::Save)
             }
-            Message::Opened(Some((path, text))) => {
-                self.load(text.replace("\r\n", "\n"));
-                recent::push(&mut self.recent, &path);
-                self.path = Some(path);
+            Message::Opened { generation, result } => {
+                if generation != self.generation {
+                    // The document was replaced while this file was loading; drop the result.
+                    return Task::none();
+                }
+                let (path, text) = match result {
+                    Ok(loaded) => loaded,
+                    Err(e) => {
+                        if !e.is_empty() {
+                            self.notice = Some(e);
+                        }
+                        return Task::none();
+                    }
+                };
+                let authorised = self.replace_authorised.take() == Some((self.generation, self.edits));
+                if self.dirty && !authorised {
+                    // Edited since the request was made: ask again rather than replace silently.
+                    self.pending_open = Some((path, text));
+                    return self.ask_unsaved(Pending::Replace);
+                }
+                self.replace_with(path, &text);
                 Task::none()
             }
-            Message::OpenRecent(path) => {
-                if self.dirty {
-                    self.pending_path = Some(path);
-                    return self.ask_unsaved(Pending::OpenRecent);
+            Message::Save => {
+                if self.saving {
+                    self.notice = Some("Still saving…".to_owned());
+                    return Task::none();
                 }
-                Task::perform(read_file(path), Message::Opened)
-            }
-            Message::Opened(None) => Task::none(),
-            Message::Save => match self.path.clone() {
-                Some(path) => Task::perform(write_file(path, self.content.text()), Message::Saved),
-                None => self.update(Message::SaveAs),
-            },
-            Message::SaveAs => Task::perform(save_dialog(self.content.text()), Message::Saved),
-            Message::Saved(Ok(path)) => {
-                recent::push(&mut self.recent, &path);
-                self.path = Some(path);
-                self.dirty = false;
-                self.notice = Some("Saved".to_owned());
-                match self.after_save.take() {
-                    Some(pending) => self.proceed(pending),
-                    None => Task::none(),
+                match self.path.clone() {
+                    Some(path) => self.write(path),
+                    None => self.update(Message::SaveAs),
                 }
             }
-            Message::Saved(Err(e)) => {
-                // A cancelled Save As also lands here: the pending action is dropped.
-                self.after_save = None;
-                self.notice = Some(format!("Save failed: {e}"));
-                Task::none()
+            Message::SaveAs => {
+                if self.saving {
+                    self.notice = Some("Still saving…".to_owned());
+                    return Task::none();
+                }
+                self.saving = true;
+                let generation = self.generation;
+                let text = Arc::new(self.content.text());
+                let written = text.clone();
+                Task::perform(save_dialog(text), move |result| Message::Saved { generation, text: written.clone(), result })
+            }
+            Message::Saved { generation, text, result } => {
+                self.saving = false;
+                if generation != self.generation {
+                    // Belongs to a document that has since been replaced: ignore it.
+                    self.after_save = None;
+                    return Task::none();
+                }
+                match result {
+                    Ok(path) => {
+                        recent::push(&mut self.recent, &path);
+                        self.path = Some(path);
+                        self.saved_text = text;
+                        self.history.end_group();
+                        self.update_dirty();
+                        self.notice = Some(if self.dirty { "Saved (edited since)".to_owned() } else { "Saved".to_owned() });
+                        match self.after_save.take() {
+                            // Typed while the chooser was open: the new text is not saved, ask again.
+                            Some(pending) if self.dirty => self.ask_unsaved(pending),
+                            Some(pending) => self.proceed(pending),
+                            None => Task::none(),
+                        }
+                    }
+                    Err(e) => {
+                        // A cancelled Save As also lands here: the pending action is dropped.
+                        self.after_save = None;
+                        self.notice = Some(format!("Save failed: {e}"));
+                        Task::none()
+                    }
+                }
             }
             Message::CycleFocus => self.update(Message::SetFocus(self.prefs.focus.next())),
             Message::ToggleTypewriter => self.update(Message::SetTypewriter(!self.prefs.typewriter)),
@@ -387,7 +481,7 @@ impl Inkpad {
                 self.prefs.sound_volume = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
                 // Preview the new level right away.
                 self.sound.play(sound::Key::Character, self.prefs.sound_set, self.prefs.sound_volume);
-                self.save_prefs()
+                Task::none()
             }
             Message::SetTheme(theme) => {
                 self.prefs.theme = theme;
@@ -401,11 +495,12 @@ impl Inkpad {
             }
             Message::SetSize(size) => {
                 self.prefs.size = size.round().clamp(MIN_SIZE, MAX_SIZE);
-                self.save_prefs()
+                Task::none()
             }
+            Message::SavePrefs => self.save_prefs(),
             Message::SetLineHeight(lh) => {
                 self.prefs.line_height = ((lh * 20.0).round() / 20.0).clamp(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT);
-                self.save_prefs()
+                Task::none()
             }
             Message::ToggleMenu => {
                 self.dialog = None;
@@ -432,7 +527,7 @@ impl Inkpad {
             Message::SetMusicVolume(v) => {
                 self.prefs.music_volume = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
                 self.sound.set_music_volume(self.prefs.music_volume);
-                self.save_prefs()
+                Task::none()
             }
             Message::OpenDialog(dialog) => {
                 self.menu_open = false;
@@ -464,15 +559,11 @@ impl Inkpad {
                 self.window_width = size.width;
                 self.window_height = size.height;
                 let maximized = window::latest().and_then(window::is_maximized).map(Message::Maximized);
-                if self.frost_attach_started {
+                if self.frost_attach_started || !self.prefs.frost {
                     return maximized;
                 }
-                // The window exists now: bind the compositor effects to it, once.
-                self.frost_attach_started = true;
-                let attach = window::latest()
-                    .and_then(|id| window::run(id, |w| frost::Frost::attach(w)))
-                    .map(Message::FrostAttached);
-                Task::batch([maximized, attach])
+                // Frosted glass is on and the window exists: bind the compositor effects, once.
+                Task::batch([maximized, self.attach_frost()])
             }
             Message::FrostAttached(frost) => {
                 self.frost = frost;
@@ -482,17 +573,28 @@ impl Inkpad {
             Message::SetFrost(on) => {
                 self.prefs.frost = on;
                 self.apply_frost();
-                self.save_prefs()
+                let save = self.save_prefs();
+                if on && !self.frost_attach_started {
+                    // First use: only now does the compositor get asked for the effects.
+                    return Task::batch([save, self.attach_frost()]);
+                }
+                save
+            }
+            Message::OpenLicences => {
+                if let Some(dir) = licences_dir() {
+                    let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+                }
+                Task::none()
             }
             Message::SetFrostTransparency(v) => {
                 self.prefs.frost_transparency = ((v * 20.0).round() / 20.0).clamp(0.0, MAX_TRANSPARENCY);
                 self.apply_frost();
-                self.save_prefs()
+                Task::none()
             }
             Message::SetFrostThickness(v) => {
                 self.prefs.frost_thickness = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
                 self.apply_frost();
-                self.save_prefs()
+                Task::none()
             }
             Message::Maximized(maximized) => {
                 self.maximized = maximized;
@@ -531,7 +633,7 @@ impl Inkpad {
                 }
                 Err(e) => {
                     println!("SELFTEST FAIL: {e}");
-                    iced::exit()
+                    std::process::exit(1)
                 }
             },
             Message::KeyPressed(key, modifiers) => {
@@ -553,21 +655,72 @@ impl Inkpad {
         Task::none()
     }
 
-    /// Carry out an action that was waiting on the unsaved-changes dialog.
+    /// Carry out an action that was waiting on the unsaved-changes dialog (or needed none).
     fn proceed(&mut self, pending: Pending) -> Task<Message> {
         match pending {
-            Pending::Quit => iced::exit(),
+            Pending::Quit => {
+                // Release compositor objects and the settings before the window goes away.
+                if let Some(frost) = self.frost.take() {
+                    frost.release();
+                }
+                let _ = self.prefs.save();
+                iced::exit()
+            }
             Pending::New => {
                 self.load(String::new());
                 self.path = None;
                 Task::none()
             }
-            Pending::Open => Task::perform(open_dialog(), Message::Opened),
+            Pending::Open => {
+                let generation = self.generation;
+                Task::perform(open_dialog(), move |result| Message::Opened { generation, result })
+            }
             Pending::OpenRecent => match self.pending_path.take() {
-                Some(path) => Task::perform(read_file(path), Message::Opened),
+                Some(path) => self.read(path),
+                None => Task::none(),
+            },
+            Pending::Replace => match self.pending_open.take() {
+                Some((path, text)) => {
+                    self.replace_with(path, &text);
+                    Task::none()
+                }
                 None => Task::none(),
             },
         }
+    }
+
+    /// Start reading `path` for the current document generation.
+    fn read(&self, path: PathBuf) -> Task<Message> {
+        let generation = self.generation;
+        Task::perform(read_file(path), move |result| Message::Opened { generation, result })
+    }
+
+    /// Start writing the current text to `path`.
+    fn write(&mut self, path: PathBuf) -> Task<Message> {
+        self.saving = true;
+        let generation = self.generation;
+        let text = Arc::new(self.content.text());
+        let written = text.clone();
+        Task::perform(write_file(path, text), move |result| Message::Saved { generation, text: written.clone(), result })
+    }
+
+    /// Replace the document with a loaded file.
+    fn replace_with(&mut self, path: PathBuf, text: &str) {
+        self.load(text.replace("\r\n", "\n"));
+        recent::push(&mut self.recent, &path);
+        self.path = Some(path);
+    }
+
+    /// Dirty means the text differs from what was last loaded or saved, so undoing back
+    /// to the saved revision makes the document clean again.
+    fn update_dirty(&mut self) {
+        self.dirty = self.text != *self.saved_text;
+    }
+
+    /// Bind the compositor effects to the window (a short synchronous roundtrip).
+    fn attach_frost(&mut self) -> Task<Message> {
+        self.frost_attach_started = true;
+        window::latest().and_then(|id| window::run(id, |w| frost::Frost::attach(w))).map(Message::FrostAttached)
     }
 
     /// Push the current frost settings to the compositor, if attached.
@@ -605,9 +758,14 @@ impl Inkpad {
     fn load(&mut self, text: String) {
         self.content = text_editor::Content::with_text(&text);
         self.stats = stats::compute(&text);
+        self.saved_text = Arc::new(text.clone());
         self.text = text;
         self.history.clear();
         self.dirty = false;
+        self.generation += 1;
+        self.edits = 0;
+        self.replace_authorised = None;
+        self.pending_open = None;
         self.notice = None;
         self.refresh_focus();
     }
@@ -632,7 +790,8 @@ impl Inkpad {
         self.content.move_to(Cursor { position: cursor, selection: None });
         self.text = self.content.text();
         self.stats = stats::compute(&self.text);
-        self.dirty = true;
+        self.edits += 1;
+        self.update_dirty();
         self.refresh_focus();
     }
 
@@ -700,6 +859,50 @@ impl Inkpad {
             }
         }
         self.dialog = None;
+
+        // "Don't save" then a cancelled chooser must leave the changes protected.
+        let _ = self.update(Message::Discard(Pending::Open));
+        let _ = self.update(Message::Opened { generation: self.generation, result: Err(String::new()) });
+        if !self.dirty {
+            return Err("cancelled Open after Discard marked the document clean".to_owned());
+        }
+        // A stale save result (older generation) must be ignored.
+        let stale = Message::Saved { generation: self.generation + 100, text: Arc::new(String::new()), result: Ok(PathBuf::from("/nonexistent")) };
+        let _ = self.update(stale);
+        if !self.dirty || self.path.is_some() {
+            return Err("stale save result was applied".to_owned());
+        }
+        // A save of older text must not mark newer text clean.
+        let older = Arc::new("older".to_owned());
+        let _ = self.update(Message::Saved { generation: self.generation, text: older, result: Ok(PathBuf::from("/nonexistent/x.md")) });
+        if !self.dirty {
+            return Err("save of older text marked newer text clean".to_owned());
+        }
+        // A save of the current text makes it clean; undo past it makes it dirty again;
+        // redo back to it makes it clean.
+        let current = Arc::new(self.content.text());
+        let _ = self.update(Message::Saved { generation: self.generation, text: current, result: Ok(PathBuf::from("/nonexistent/x.md")) });
+        if self.dirty {
+            return Err("save of current text left the document dirty".to_owned());
+        }
+        step(self, Message::Undo, "Hello X.\nSecond line. More\nNew", "undo past save")?;
+        if !self.dirty {
+            return Err("undo past the saved revision is not dirty".to_owned());
+        }
+        step(self, Message::Redo, "Hello X.\nSecond line. More\nNewè!", "redo to saved")?;
+        if self.dirty {
+            return Err("redo back to the saved revision is still dirty".to_owned());
+        }
+        // A file that finished loading while the document is dirty must ask, not replace.
+        let _ = self.update(edit(Edit::Insert('!')));
+        let loaded = Message::Opened { generation: self.generation, result: Ok((PathBuf::from("/nonexistent/y.md"), Arc::new("other".to_owned()))) };
+        let _ = self.update(loaded);
+        if self.dialog != Some(Dialog::Unsaved(Pending::Replace)) || self.content.text() == "other" {
+            return Err("late Open result replaced an edited document".to_owned());
+        }
+        self.dialog = None;
+        self.pending_open = None;
+        self.path = None;
         Ok(())
     }
 
@@ -728,6 +931,18 @@ impl Inkpad {
         let cursor = self.content.cursor();
         let line = cursor.position.line;
         let col = cursor.position.column;
+
+        if self.prefs.focus == FocusMode::Off {
+            // Nothing is dimmed: skip the per-line scan.
+            self.highlight = HlSettings {
+                family: self.prefs.font.family(),
+                focus: FocusMode::Off,
+                paragraph: 0..0,
+                cursor_line: line,
+                sentence: 0..0,
+            };
+            return;
+        }
 
         let blank: Vec<bool> = self.content.lines().map(|l| l.text.trim().is_empty()).collect();
         let mut start = line;
@@ -847,7 +1062,7 @@ impl Inkpad {
                     setting(
                         "Size",
                         slider_row(
-                            slider(MIN_SIZE..=MAX_SIZE, size, Message::SetSize).step(1.0_f32),
+                            slider(MIN_SIZE..=MAX_SIZE, size, Message::SetSize).step(1.0_f32).on_release(Message::SavePrefs),
                             format!("{size:.0} pt"),
                         ),
                     ),
@@ -855,7 +1070,8 @@ impl Inkpad {
                         "Line height",
                         slider_row(
                             slider(MIN_LINE_HEIGHT..=MAX_LINE_HEIGHT, line_height, Message::SetLineHeight)
-                                .step(0.05_f32),
+                                .step(0.05_f32)
+                                .on_release(Message::SavePrefs),
                             format!("{line_height:.2}"),
                         ),
                     ),
@@ -865,21 +1081,22 @@ impl Inkpad {
                     setting(
                         "Transparency",
                         slider_row(
-                            slider(0.0..=MAX_TRANSPARENCY, transparency, Message::SetFrostTransparency).step(0.05_f32),
+                            slider(0.0..=MAX_TRANSPARENCY, transparency, Message::SetFrostTransparency).step(0.05_f32).on_release(Message::SavePrefs),
                             format!("{:.0}%", transparency * 100.0),
                         ),
                     ),
                     setting(
                         "Thickness",
                         slider_row(
-                            slider(0.0..=1.0, thickness, Message::SetFrostThickness).step(0.05_f32),
+                            slider(0.0..=1.0, thickness, Message::SetFrostThickness).step(0.05_f32).on_release(Message::SavePrefs),
                             format!("{:.0}%", thickness * 100.0),
                         ),
                     ),
                     muted(match self.frost.as_ref().map(frost::Frost::blur_supported) {
                         Some(true) => "The desktop behind the window is blurred by the compositor.".to_owned(),
                         Some(false) => "This desktop cannot blur behind windows (KDE Plasma can), so only the transparency applies.".to_owned(),
-                        None => "Checking what this desktop supports…".to_owned(),
+                        None if self.prefs.frost => "Checking what this desktop supports…".to_owned(),
+                        None => "Blur behind the window depends on the desktop: KDE Plasma can, COSMIC and GNOME apply the transparency only.".to_owned(),
                     }),
                 ]
                 .spacing(8)
@@ -897,7 +1114,7 @@ impl Inkpad {
                     setting(
                         "Volume",
                         slider_row(
-                            slider(0.0..=1.0, volume, Message::SetSoundVolume).step(0.05_f32),
+                            slider(0.0..=1.0, volume, Message::SetSoundVolume).step(0.05_f32).on_release(Message::SavePrefs),
                             format!("{:.0}%", volume * 100.0),
                         ),
                     ),
@@ -907,7 +1124,7 @@ impl Inkpad {
                     setting(
                         "Volume",
                         slider_row(
-                            slider(0.0..=1.0, music_volume, Message::SetMusicVolume).step(0.05_f32),
+                            slider(0.0..=1.0, music_volume, Message::SetMusicVolume).step(0.05_f32).on_release(Message::SavePrefs),
                             format!("{:.0}%", music_volume * 100.0),
                         ),
                     ),
@@ -929,6 +1146,18 @@ impl Inkpad {
                 ]
                 .into(),
             ),
+            Dialog::Credits => (
+                "Credits and licences",
+                column![
+                    paragraph("Inkpad is released under the MIT License."),
+                    paragraph("Fonts: IBM Plex Mono and IBM Plex Sans (IBM), Literata (TypeTogether for Google Fonts) and Lato (Łukasz Dziedzic), all under the SIL Open Font License 1.1."),
+                    paragraph("Typing sounds: cut from Keyboard Soundpack #1 by unicaegames (OpenGameArt), CC0 1.0."),
+                    paragraph("Music loops: generated by the author with Google Lyria 3 and released under CC0 1.0. Soundscapes are synthesised in code."),
+                    paragraph("Built with iced (MIT); the text editor widget is iced's, extended. Full licence texts ship with the app."),
+                ]
+                .spacing(10)
+                .into(),
+            ),
             Dialog::About => (
                 "",
                 column![
@@ -937,6 +1166,11 @@ impl Inkpad {
                     muted(format!("Version {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
                     muted("© 2026 Grunt".to_owned()),
                     link_button(REPOSITORY.trim_start_matches("https://"), Message::OpenRepository),
+                    row![
+                        link_button("Credits and licences", Message::OpenDialog(Dialog::Credits)),
+                        link_button("Open licence folder", Message::OpenLicences),
+                    ]
+                    .spacing(4),
                 ]
                 .spacing(6)
                 .align_x(iced::Alignment::Center)
@@ -947,9 +1181,9 @@ impl Inkpad {
 
         let done = dialog_button("Done", Message::CloseMenu);
         let width = match dialog {
-            Dialog::About => 260.0,
+            Dialog::About => 300.0,
             Dialog::Unsaved(_) => 360.0,
-            Dialog::Welcome => 440.0,
+            Dialog::Welcome | Dialog::Credits => 440.0,
             _ => 380.0,
         };
         let mut card = column![].spacing(14).width(width);
@@ -1203,6 +1437,17 @@ impl Inkpad {
     }
 }
 
+/// Where the licence texts are installed: `../share/licenses/inkpad` next to the
+/// executable (AppImage and Flatpak layouts), else the source tree.
+fn licences_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let candidates = [
+        exe.parent()?.join("../share/licenses/inkpad"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+    ];
+    candidates.into_iter().find(|p| p.is_dir())
+}
+
 /// Dimmed secondary text.
 fn muted<'a>(s: String) -> iced::widget::Text<'a> {
     text(s).size(12.5).font(UI_FONT).style(|theme: &Theme| {
@@ -1363,20 +1608,34 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
     }
 }
 
-async fn open_dialog() -> Option<(PathBuf, Arc<String>)> {
+/// Documents larger than this are refused rather than loaded into the editor.
+const MAX_DOCUMENT_BYTES: u64 = 20 * 1024 * 1024;
+
+/// An empty error means the chooser was cancelled; nothing to report.
+async fn open_dialog() -> Result<(PathBuf, Arc<String>), String> {
     let handle = rfd::AsyncFileDialog::new()
         .add_filter("Markdown", &["md", "markdown", "txt"])
         .pick_file()
-        .await?;
+        .await
+        .ok_or_else(String::new)?;
     read_file(handle.path().to_path_buf()).await
 }
 
-async fn read_file(path: PathBuf) -> Option<(PathBuf, Arc<String>)> {
-    let text = std::fs::read_to_string(&path).ok()?;
-    Some((path, Arc::new(text)))
+async fn read_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let meta = std::fs::metadata(&path).map_err(|e| format!("Cannot open {name}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("Cannot open {name}: not a regular file"));
+    }
+    if meta.len() > MAX_DOCUMENT_BYTES {
+        return Err(format!("Cannot open {name}: larger than {} MB", MAX_DOCUMENT_BYTES / 1024 / 1024));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot open {name}: {e}"))?;
+    let text = String::from_utf8(bytes).map_err(|_| format!("Cannot open {name}: not UTF-8 text"))?;
+    Ok((path, Arc::new(text)))
 }
 
-async fn save_dialog(contents: String) -> Result<PathBuf, String> {
+async fn save_dialog(contents: Arc<String>) -> Result<PathBuf, String> {
     let handle = rfd::AsyncFileDialog::new()
         .add_filter("Markdown", &["md", "markdown", "txt"])
         .set_file_name("Untitled.md")
@@ -1386,9 +1645,32 @@ async fn save_dialog(contents: String) -> Result<PathBuf, String> {
     write_file(handle.path().to_path_buf(), contents).await
 }
 
-async fn write_file(path: PathBuf, contents: String) -> Result<PathBuf, String> {
-    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
-    Ok(path)
+/// Write atomically: the content goes to a temporary sibling that replaces the
+/// target only once fully written, so a full disk or a crash leaves the old file
+/// intact. Where a sibling cannot be created (some portal paths) it falls back to
+/// a direct write.
+async fn write_file(path: PathBuf, contents: Arc<String>) -> Result<PathBuf, String> {
+    use std::io::Write;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let temp = path.with_file_name(format!(".{name}.inkpad-{}.tmp", std::process::id()));
+    let staged = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let _ = std::fs::set_permissions(&temp, meta.permissions());
+        }
+        std::fs::rename(&temp, &path)
+    })();
+    match staged {
+        Ok(()) => Ok(path),
+        Err(stage_err) => {
+            let _ = std::fs::remove_file(&temp);
+            // Could not stage next to the target: write in place, as a last resort.
+            std::fs::write(&path, contents.as_bytes()).map_err(|e| format!("{e} (atomic write failed: {stage_err})"))?;
+            Ok(path)
+        }
+    }
 }
 
 pub fn main() -> iced::Result {

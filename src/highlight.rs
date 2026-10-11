@@ -95,10 +95,21 @@ pub struct Highlight {
     pub family: &'static str,
 }
 
+/// An open fenced code block: its delimiter character and length, so only a
+/// matching fence closes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fence {
+    ch: u8,
+    len: usize,
+}
+
 pub struct MarkdownHighlighter {
     settings: Settings,
     current_line: usize,
-    in_fence: bool,
+    in_fence: Option<Fence>,
+    /// The fence state at the start of each line seen so far, so highlighting can
+    /// resume from any line with the right state.
+    line_states: Vec<Option<Fence>>,
 }
 
 impl Highlighter for MarkdownHighlighter {
@@ -107,7 +118,7 @@ impl Highlighter for MarkdownHighlighter {
     type Iterator<'a> = std::vec::IntoIter<(Range<usize>, Highlight)>;
 
     fn new(settings: &Self::Settings) -> Self {
-        Self { settings: settings.clone(), current_line: 0, in_fence: false }
+        Self { settings: settings.clone(), current_line: 0, in_fence: None, line_states: Vec::new() }
     }
 
     fn update(&mut self, new_settings: &Self::Settings) {
@@ -116,9 +127,12 @@ impl Highlighter for MarkdownHighlighter {
     }
 
     fn change_line(&mut self, line: usize) {
+        // Resume with the state that was in force at the start of `line`.
         self.current_line = line;
+        self.line_states.truncate(line);
+        self.in_fence = self.line_states.last().copied().flatten();
         if line == 0 {
-            self.in_fence = false;
+            self.in_fence = None;
         }
     }
 
@@ -126,7 +140,13 @@ impl Highlighter for MarkdownHighlighter {
         let index = self.current_line;
         self.current_line += 1;
 
+        // `line_states[n]` is the state before line n; the state after is pushed below.
+        if self.line_states.len() < index {
+            self.line_states.resize(index, None);
+        }
         let mut spans = tokenize(line, &mut self.in_fence);
+        self.line_states.truncate(index);
+        self.line_states.push(self.in_fence);
 
         let dim_whole = match self.settings.focus {
             FocusMode::Off => false,
@@ -209,16 +229,31 @@ fn split_at(spans: Vec<(Range<usize>, Kind)>, cuts: &[usize]) -> Vec<(Range<usiz
     out
 }
 
-fn tokenize(line: &str, in_fence: &mut bool) -> Vec<(Range<usize>, Kind)> {
+fn tokenize(line: &str, in_fence: &mut Option<Fence>) -> Vec<(Range<usize>, Kind)> {
     let len = line.len();
     let trimmed = line.trim_start();
     let indent = len - trimmed.len();
 
-    if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-        *in_fence = !*in_fence;
-        return vec![(0..len, Kind::Marker)];
+    // A fence is three or more backticks or tildes; a block closes only on the same
+    // character, at least as long as the opener.
+    let fence = trimmed.bytes().next().filter(|c| *c == b'`' || *c == b'~').map(|ch| Fence {
+        ch,
+        len: trimmed.bytes().take_while(|c| *c == ch).count(),
+    });
+    if let Some(fence) = fence.filter(|f| f.len >= 3) {
+        match *in_fence {
+            None => {
+                *in_fence = Some(fence);
+                return vec![(0..len, Kind::Marker)];
+            }
+            Some(open) if open.ch == fence.ch && fence.len >= open.len => {
+                *in_fence = None;
+                return vec![(0..len, Kind::Marker)];
+            }
+            Some(_) => {}
+        }
     }
-    if *in_fence {
+    if in_fence.is_some() {
         return vec![(0..len, Kind::CodeBlock)];
     }
     if len == 0 {
@@ -240,7 +275,11 @@ fn tokenize(line: &str, in_fence: &mut bool) -> Vec<(Range<usize>, Kind)> {
     }
 
     let mut spans = Vec::new();
-    let mut pos = 0;
+    // `pos` is always a byte offset into the original line; `rest` is the text from `pos`.
+    let mut pos = indent;
+    if indent > 0 {
+        spans.push((0..indent, Kind::Text));
+    }
 
     // Block quote marker(s)
     let mut rest = trimmed;
@@ -263,8 +302,6 @@ fn tokenize(line: &str, in_fence: &mut bool) -> Vec<(Range<usize>, Kind)> {
             spans.push((pos..pos + n, Kind::Marker));
             pos += n;
         }
-    } else if indent > 0 && spans.is_empty() {
-        pos = 0; // keep leading indentation as plain text
     }
 
     inline(line, pos, &mut spans);
@@ -313,12 +350,28 @@ fn inline(line: &str, start: usize, spans: &mut Vec<(Range<usize>, Kind)>) {
         (false, false) => Kind::Text,
     };
 
+    // Once a closing delimiter is known to be absent after some position, later
+    // searches for it are skipped: this keeps a line of repeated `[` or `` ` `` linear.
+    let mut no_backtick_from = usize::MAX;
+    let mut no_rbracket_from = usize::MAX;
+    let mut no_rparen_from = usize::MAX;
+    let find = |needle: u8, from: usize, none_from: &mut usize| -> Option<usize> {
+        if from >= *none_from {
+            return None;
+        }
+        let found = find_byte(b, needle, from);
+        if found.is_none() {
+            *none_from = from;
+        }
+        found
+    };
+
     while i < len {
         let c = b[i];
 
         // Code span
         if c == b'`' {
-            if let Some(j) = find_byte(b, b'`', i + 1) {
+            if let Some(j) = find(b'`', i + 1, &mut no_backtick_from) {
                 spans.push((i..i + 1, Kind::Marker));
                 spans.push((i + 1..j, Kind::Code));
                 spans.push((j..j + 1, Kind::Marker));
@@ -346,9 +399,9 @@ fn inline(line: &str, start: usize, spans: &mut Vec<(Range<usize>, Kind)>) {
         // Links and images: [text](url) / ![alt](url)
         let link_start = if c == b'!' && i + 1 < len && b[i + 1] == b'[' { Some(i + 1) } else if c == b'[' { Some(i) } else { None };
         if let Some(lb) = link_start {
-            if let Some(rb) = find_byte(b, b']', lb + 1) {
+            if let Some(rb) = find(b']', lb + 1, &mut no_rbracket_from) {
                 if rb + 1 < len && b[rb + 1] == b'(' {
-                    if let Some(rp) = find_byte(b, b')', rb + 2) {
+                    if let Some(rp) = find(b')', rb + 2, &mut no_rparen_from) {
                         spans.push((i..lb + 1, Kind::Marker));
                         spans.push((lb + 1..rb, Kind::Link));
                         spans.push((rb..rb + 2, Kind::Marker));
@@ -406,8 +459,64 @@ mod tests {
     use super::*;
 
     fn kinds(line: &str) -> Vec<(Range<usize>, Kind)> {
-        let mut fence = false;
+        let mut fence = None;
         tokenize(line, &mut fence)
+    }
+
+    /// Every span must be in order, inside the line and on UTF-8 boundaries.
+    fn assert_spans_valid(line: &str, spans: &[(Range<usize>, Kind)]) {
+        let mut last = 0;
+        for (r, _) in spans {
+            assert!(r.start >= last && r.end >= r.start && r.end <= line.len(), "bad span {r:?} in {line:?}");
+            assert!(line.is_char_boundary(r.start) && line.is_char_boundary(r.end), "span {r:?} splits a char in {line:?}");
+            last = r.end;
+        }
+    }
+
+    #[test]
+    fn indented_list_offsets_are_line_relative() {
+        let line = "  - [x] done";
+        let spans = kinds(line);
+        assert_spans_valid(line, &spans);
+        assert_eq!(spans[0], (0..2, Kind::Text));
+        assert_eq!(spans[1], (2..4, Kind::ListMarker));
+        assert_eq!(spans[2], (4..8, Kind::Marker));
+        // Unicode indentation (em space, 3 bytes) must not be split.
+        let line = "\u{2003}- item";
+        let spans = kinds(line);
+        assert_spans_valid(line, &spans);
+        assert_eq!(spans[0], (0..3, Kind::Text));
+    }
+
+    #[test]
+    fn fence_state_resumes_per_line() {
+        let settings = Settings::default();
+        let mut h = MarkdownHighlighter::new(&settings);
+        let lines = ["```rust", "let x = 1;", "```", "after", "~~~", "inside tilde", "```", "still inside"];
+        let kinds_of = |h: &mut MarkdownHighlighter, line: &str| h.highlight_line(line).map(|(_, hl)| hl.kind).next();
+        let first: Vec<_> = lines.iter().map(|l| kinds_of(&mut h, l)).collect();
+        assert_eq!(first[1], Some(Kind::CodeBlock));
+        assert_eq!(first[3], Some(Kind::Text));
+        // A backtick fence does not close a tilde block.
+        assert_eq!(first[7], Some(Kind::CodeBlock));
+        // Resume after the block closed: plain text.
+        h.change_line(3);
+        assert_eq!(kinds_of(&mut h, lines[3]), Some(Kind::Text));
+        // Resume from the interior line of the first block: still code, and the lines
+        // that follow (re-highlighted in order, as iced does) come out right too.
+        h.change_line(1);
+        assert_eq!(kinds_of(&mut h, lines[1]), Some(Kind::CodeBlock));
+        assert_eq!(kinds_of(&mut h, lines[2]), Some(Kind::Marker));
+        assert_eq!(kinds_of(&mut h, lines[3]), Some(Kind::Text));
+    }
+
+    #[test]
+    fn repeated_brackets_stay_linear() {
+        let line = "[".repeat(20_000);
+        let start = std::time::Instant::now();
+        let spans = kinds(&line);
+        assert_spans_valid(&line, &spans);
+        assert!(start.elapsed().as_millis() < 200, "took {:?}", start.elapsed());
     }
 
     #[test]

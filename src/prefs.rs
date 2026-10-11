@@ -183,13 +183,13 @@ impl Preferences {
                     prefs.focus = pick(&[FocusMode::Off, FocusMode::Paragraph, FocusMode::Sentence], value)
                         .unwrap_or(prefs.focus)
                 }
-                "typewriter" => prefs.typewriter = value == "true",
-                "typing_sound" => prefs.typing_sound = value == "true",
+                "typewriter" => prefs.typewriter = parse_bool(value).unwrap_or(prefs.typewriter),
+                "typing_sound" => prefs.typing_sound = parse_bool(value).unwrap_or(prefs.typing_sound),
                 "sound_set" => prefs.sound_set = pick(&SoundSet::ALL, value).unwrap_or(prefs.sound_set),
                 "sound_volume" => prefs.sound_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.sound_volume),
                 "music_volume" => prefs.music_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.music_volume),
-                "show_welcome" => prefs.show_welcome = value != "false",
-                "frost" => prefs.frost = value == "true",
+                "show_welcome" => prefs.show_welcome = parse_bool(value).unwrap_or(prefs.show_welcome),
+                "frost" => prefs.frost = parse_bool(value).unwrap_or(prefs.frost),
                 "frost_transparency" => prefs.frost_transparency = parse_clamped(value, 0.0, MAX_TRANSPARENCY).unwrap_or(prefs.frost_transparency),
                 "frost_thickness" => prefs.frost_thickness = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.frost_thickness),
                 _ => {}
@@ -200,10 +200,7 @@ impl Preferences {
 
     pub fn save(&self) -> Result<(), String> {
         let path = Self::path().ok_or("no config directory")?;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&path, self.serialize()).map_err(|e| e.to_string())
+        write_atomic(&path, &self.serialize()).map_err(|e| e.to_string())
     }
 
     fn serialize(&self) -> String {
@@ -224,6 +221,35 @@ impl Preferences {
             self.frost_transparency,
             self.frost_thickness,
         )
+    }
+}
+
+/// Write a small state file atomically: to a temporary sibling, then renamed over
+/// the target, so an interrupted write cannot leave a half-written file.
+pub fn write_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let temp = path.with_extension(format!("tmp{}", std::process::id()));
+    let result = (|| {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+/// `true`/`false`; anything else is treated as absent so the default applies.
+fn parse_bool(value: &str) -> Option<bool> {
+    match value {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
     }
 }
 
@@ -265,9 +291,10 @@ mod tests {
 
     #[test]
     fn malformed_values_fall_back_to_defaults() {
-        let text = "theme = neon\nsize = huge\nline_height = 9\nfocus=paragraph\nbogus = 1\n";
+        let text = "theme = neon\nsize = huge\nline_height = 9\nfocus=paragraph\nbogus = 1\ntyping_sound = yes\n";
         let prefs = Preferences::parse(text);
         assert_eq!(prefs.theme, ThemeKind::Light);
+        assert!(prefs.typing_sound, "a malformed boolean must keep the default");
         assert_eq!(prefs.size, 18.0);
         assert_eq!(prefs.line_height, MAX_LINE_HEIGHT);
         assert_eq!(prefs.focus, FocusMode::Paragraph);

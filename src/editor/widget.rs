@@ -371,7 +371,8 @@ where
         let internal = self.content.0.borrow_mut();
 
         let text_bounds = bounds.shrink(self.padding);
-        let translation = text_bounds.position() - Point::ORIGIN;
+        // The anchor shifts the drawn text; the input method must see the same caret.
+        let translation = text_bounds.position() - Point::ORIGIN + Vector::new(0.0, state.typewriter_offset);
 
         let cursor = match internal.editor.selection() {
             Selection::Caret(position) => position,
@@ -407,7 +408,12 @@ where
     R: text::Renderer,
 {
     editor: R::Editor,
+    /// Distinguishes one document from the next, so widget state tied to the
+    /// content (the anchor cache) is not reused after a document is replaced.
+    id: u64,
 }
+
+static NEXT_CONTENT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl<R> Content<R>
 where
@@ -422,6 +428,7 @@ where
     pub fn with_text(text: &str) -> Self {
         Self(RefCell::new(Internal {
             editor: R::Editor::with_text(text),
+            id: NEXT_CONTENT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }))
     }
 
@@ -543,7 +550,9 @@ where
 #[derive(Debug)]
 pub struct State<Highlighter: text::Highlighter> {
     typewriter_offset: f32,
-    typewriter_key: Option<(usize, usize, u32, u32)>,
+    /// Everything the anchor position depends on: caret, box size, line height, font
+    /// and size, and which document is loaded.
+    typewriter_key: Option<(usize, usize, u32, u32, u32, u64, u64)>,
     focus: Option<Focus>,
     preedit: Option<input_method::Preedit>,
     last_click: Option<mouse::Click>,
@@ -613,6 +622,7 @@ where
     Theme: Catalog,
     Renderer: text::Renderer,
     Renderer::Editor: super::BufferAccess,
+    Renderer::Font: std::hash::Hash,
 {
     fn tag(&self) -> widget::tree::Tag {
         widget::tree::Tag::of::<State<Highlighter>>()
@@ -699,7 +709,22 @@ where
 
         if self.typewriter {
             let position = internal.editor.cursor().position;
-            let key = (position.line, position.column, inner.height.to_bits(), line_height.to_bits());
+            let font_key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                font.hash(&mut h);
+                text_size.0.to_bits().hash(&mut h);
+                h.finish()
+            };
+            let key = (
+                position.line,
+                position.column,
+                inner.height.to_bits(),
+                line_height.to_bits(),
+                inner.width.to_bits(),
+                font_key,
+                internal.id,
+            );
 
             if state.typewriter_key != Some(key) {
                 state.typewriter_key = Some(key);
@@ -1181,6 +1206,7 @@ where
     Theme: Catalog + 'a,
     Renderer: text::Renderer,
     Renderer::Editor: super::BufferAccess,
+    Renderer::Font: std::hash::Hash,
 {
     fn from(
         text_editor: TextEditor<'a, Highlighter, Message, Theme, Renderer>,

@@ -183,6 +183,9 @@ struct Layer {
     source: Box<dyn Source>,
     gain: f32,
     target: f32,
+    /// The current selection; a retiring layer (replaced or stopped) has this false.
+    /// Muting lowers the target to zero but keeps the layer, so it can come back.
+    active: bool,
     /// Gain change per block while fading in and out.
     in_step: f32,
     out_step: f32,
@@ -196,19 +199,23 @@ impl Layer {
             source,
             gain: 0.0,
             target,
+            active: true,
             in_step: 1.0 / (fade_in * blocks_per_second),
             out_step: 1.0 / (fade_out * blocks_per_second),
         }
     }
 
-    /// Advance the fade; false once a fade-out has completed.
+    /// Advance the fade; false once a retiring layer has faded out or its source has ended.
     fn step(&mut self) -> bool {
         if self.gain < self.target {
             self.gain = (self.gain + self.in_step).min(self.target);
         } else if self.gain > self.target {
             self.gain = (self.gain - self.out_step).max(self.target);
         }
-        self.target > 0.0 || self.gain > 0.0
+        if self.source.finished() {
+            return false;
+        }
+        self.active || self.gain > 0.0
     }
 }
 
@@ -247,6 +254,7 @@ fn mixer(rx: mpsc::Receiver<Command>, dirs: MusicDirs) {
             Some(Command::Key(p)) => play = Some(p),
             Some(Command::Music(music)) => {
                 for layer in &mut layers {
+                    layer.active = false;
                     layer.target = 0.0;
                 }
                 if let Some(source) = music.source(&dirs) {
@@ -256,7 +264,7 @@ fn mixer(rx: mpsc::Receiver<Command>, dirs: MusicDirs) {
             }
             Some(Command::MusicVolume(v)) => {
                 music_volume = v.clamp(0.0, 1.0);
-                if let Some(layer) = layers.iter_mut().filter(|l| l.target > 0.0).last() {
+                if let Some(layer) = layers.iter_mut().find(|l| l.active) {
                     layer.target = music_volume * music_volume;
                 }
             }
@@ -402,21 +410,36 @@ impl Alsa {
         Some(Self { pcm, writei, recover, close, _lib: lib })
     }
 
-    /// Write one block of interleaved stereo, recovering once from an underrun. False means the device is gone.
+    /// Write one block of interleaved stereo. `snd_pcm_writei` may write fewer
+    /// frames than asked, so the remainder is retried; an underrun is recovered a
+    /// bounded number of times. False means the device is gone.
     fn write(&mut self, samples: &[i16]) -> bool {
-        let frames = (samples.len() / CHANNELS) as c_ulong;
-        for _ in 0..2 {
-            // SAFETY: `pcm` is open and `samples` outlives the call.
-            let n = unsafe { (self.writei)(self.pcm, samples.as_ptr().cast(), frames) };
-            if n >= 0 {
-                return true;
-            }
-            // SAFETY: recover expects the negative errno returned by writei.
-            if unsafe { (self.recover)(self.pcm, n as c_int, 1) } < 0 {
-                return false;
+        let total = samples.len() / CHANNELS;
+        let mut done = 0usize;
+        let mut recoveries = 0;
+        let mut stalls = 0;
+        while done < total {
+            let ptr = samples[done * CHANNELS..].as_ptr();
+            // SAFETY: `pcm` is open; `ptr` points at `total - done` frames that outlive the call.
+            let n = unsafe { (self.writei)(self.pcm, ptr.cast(), (total - done) as c_ulong) };
+            if n > 0 {
+                done += n as usize;
+                stalls = 0;
+            } else if n == 0 {
+                stalls += 1;
+                if stalls > 20 {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            } else {
+                recoveries += 1;
+                // SAFETY: recover expects the negative errno returned by writei.
+                if recoveries > 3 || unsafe { (self.recover)(self.pcm, n as c_int, 1) } < 0 {
+                    return false;
+                }
             }
         }
-        false
+        true
     }
 }
 

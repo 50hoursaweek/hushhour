@@ -25,6 +25,12 @@ pub struct History {
 }
 
 impl History {
+    /// End the current typing group, so the next edit starts a new undo step.
+    /// Called after a save, so undo never jumps across the saved revision.
+    pub fn end_group(&mut self) {
+        self.last_push = None;
+    }
+
     /// Record the change from `old` to `new`. Returns false if nothing changed.
     pub fn record(&mut self, old: &str, new: &str, before: Position, after: Position) -> bool {
         let Some((offset, removed, inserted)) = diff(old, new) else {
@@ -88,13 +94,16 @@ impl History {
         self.last_push = None;
     }
 
+    #[cfg(test)]
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
+    #[cfg(test)]
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
+
 }
 
 /// Single contiguous change between two strings: (offset, removed, inserted).

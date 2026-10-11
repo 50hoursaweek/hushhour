@@ -37,8 +37,10 @@ pub struct Frost(Arc<Mutex<Inner>>);
 
 struct Inner {
     conn: Connection,
-    /// Kept alive so objects created with `qh` stay valid; never dispatched (no events matter).
-    _queue: EventQueue<State>,
+    /// Kept alive so objects created with `qh` stay valid; never dispatched (no events
+    /// matter) and never destroyed: winit owns the display, and destroying a queue
+    /// after the display is gone would be a use after free. One small leak per process.
+    _queue: std::mem::ManuallyDrop<EventQueue<State>>,
     qh: QueueHandle<State>,
     surface: WlSurface,
     blur_manager: Option<OrgKdeKwinBlurManager>,
@@ -86,7 +88,7 @@ impl Frost {
         let contrast_manager = globals.bind(&qh, 1..=2, ()).ok();
         Some(Self(Arc::new(Mutex::new(Inner {
             conn,
-            _queue: queue,
+            _queue: std::mem::ManuallyDrop::new(queue),
             qh,
             surface,
             blur_manager,
@@ -94,6 +96,18 @@ impl Frost {
             blur: None,
             contrast: None,
         }))))
+    }
+
+    /// Release the compositor-side objects; call before the window goes away.
+    pub fn release(&self) {
+        let Ok(mut inner) = self.0.lock() else { return };
+        if let Some(blur) = inner.blur.take() {
+            blur.release();
+        }
+        if let Some(contrast) = inner.contrast.take() {
+            contrast.release();
+        }
+        let _ = inner.conn.flush();
     }
 
     /// Whether this compositor can blur behind the window.
