@@ -8,6 +8,7 @@ mod history;
 mod music;
 mod palette;
 mod prefs;
+mod recent;
 mod sound;
 mod stats;
 
@@ -81,6 +82,8 @@ enum Pending {
     Quit,
     New,
     Open,
+    /// Open the file held in `Inkpad::pending_path`.
+    OpenRecent,
 }
 
 struct Inkpad {
@@ -99,6 +102,9 @@ struct Inkpad {
     dialog: Option<Dialog>,
     /// Set while a save is in flight on behalf of a pending action; it runs once the save succeeds.
     after_save: Option<Pending>,
+    /// The recent file waiting behind the unsaved-changes dialog.
+    pending_path: Option<PathBuf>,
+    recent: Vec<PathBuf>,
     /// Compositor effects for the window; `None` until attached or when not on Wayland.
     frost: Option<frost::Frost>,
     frost_attach_started: bool,
@@ -118,6 +124,7 @@ enum Message {
     New,
     Open,
     Opened(Option<(PathBuf, Arc<String>)>),
+    OpenRecent(PathBuf),
     Save,
     SaveAs,
     Saved(Result<PathBuf, String>),
@@ -188,6 +195,8 @@ impl Inkpad {
             menu_open: false,
             dialog: None,
             after_save: None,
+            pending_path: None,
+            recent: recent::load(),
             frost: None,
             frost_attach_started: false,
             fullscreen: false,
@@ -304,8 +313,16 @@ impl Inkpad {
             }
             Message::Opened(Some((path, text))) => {
                 self.load(text.replace("\r\n", "\n"));
+                recent::push(&mut self.recent, &path);
                 self.path = Some(path);
                 Task::none()
+            }
+            Message::OpenRecent(path) => {
+                if self.dirty {
+                    self.pending_path = Some(path);
+                    return self.ask_unsaved(Pending::OpenRecent);
+                }
+                Task::perform(read_file(path), Message::Opened)
             }
             Message::Opened(None) => Task::none(),
             Message::Save => match self.path.clone() {
@@ -314,6 +331,7 @@ impl Inkpad {
             },
             Message::SaveAs => Task::perform(save_dialog(self.content.text()), Message::Saved),
             Message::Saved(Ok(path)) => {
+                recent::push(&mut self.recent, &path);
                 self.path = Some(path);
                 self.dirty = false;
                 self.notice = Some("Saved".to_owned());
@@ -532,6 +550,10 @@ impl Inkpad {
                 Task::none()
             }
             Pending::Open => Task::perform(open_dialog(), Message::Opened),
+            Pending::OpenRecent => match self.pending_path.take() {
+                Some(path) => Task::perform(read_file(path), Message::Opened),
+                None => Task::none(),
+            },
         }
     }
 
@@ -722,12 +744,22 @@ impl Inkpad {
     /// The menu: a drop-down under the ☰ button with file actions, entries that open
     /// the settings dialogs, the writing and window sections, and About.
     fn menu(&self) -> Element<'_, Message> {
+        let mut recent_items = column![].spacing(4);
+        if !self.recent.is_empty() {
+            recent_items = recent_items.push(divider()).push(heading("RECENT"));
+            for path in &self.recent {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                recent_items =
+                    recent_items.push(action(name, recent::folder_label(path), Message::OpenRecent(path.clone())));
+            }
+        }
         let card = column![
             heading("FILE"),
             action("New", "Ctrl+N", Message::New),
             action("Open…", "Ctrl+O", Message::Open),
             action("Save", "Ctrl+S", Message::Save),
             action("Save As…", "Ctrl+Shift+S", Message::SaveAs),
+            recent_items,
             divider(),
             heading("SETTINGS"),
             action("Appearance…", "", Message::OpenDialog(Dialog::Appearance)),
@@ -1175,9 +1207,9 @@ fn heading<'a>(s: &'static str) -> iced::widget::Text<'a> {
 }
 
 /// A full-width flat menu entry with an optional shortcut hint on the right.
-fn action<'a>(label: &'static str, hint: &'static str, msg: Message) -> Element<'a, Message> {
+fn action<'a>(label: impl Into<String>, hint: impl Into<String>, msg: Message) -> Element<'a, Message> {
     button(
-        row![text(label).size(14.0).font(UI_FONT), space().width(Length::Fill), muted(hint.to_owned())]
+        row![text(label.into()).size(14.0).font(UI_FONT), space().width(Length::Fill), muted(hint.into())]
             .align_y(iced::Alignment::Center),
     )
     .width(Length::Fill)

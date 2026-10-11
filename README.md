@@ -49,11 +49,13 @@ double-click the top strip to maximise, and use your compositor's resize
 gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
 A welcome dialog explains the menu and the sound settings at launch until its
 "Don't show this again" box is ticked.
-The ☰ button in the top-left corner opens the menu: file actions, then Appearance and
-Sound and music, which open dialogs, then the Writing and Window sections, then About.
+The ☰ button in the top-left corner opens the menu: file actions and the recent files, then
+Appearance and Sound and music, which open dialogs, then the Writing and Window sections,
+then About.
 
 Preferences (theme, font, size, line height, spotlight, anchor) are
-saved to `~/.config/inkpad/preferences` whenever they change.
+saved to `~/.config/inkpad/preferences` whenever they change; the last eight files opened
+or saved are listed in the menu and kept in `~/.config/inkpad/recent`.
 
 A key sound plays on every edit; the Sound and music dialog has a switch, a choice of two
 sound sets (soft and keyboard, both cut from a CC0 recording pack, with slight pitch and
