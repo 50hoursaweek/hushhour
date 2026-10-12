@@ -45,6 +45,11 @@ mkdir -p dist
 OUT=dist/HushHour-x86_64.AppImage
 # Only x86_64 is built and tested; refuse to mislabel another architecture.
 [ "$(uname -m)" = x86_64 ] || { echo "build-appimage.sh: only x86_64 is supported (host is $(uname -m))" >&2; exit 1; }
-ARCH=x86_64 "${APPIMAGETOOL:-appimagetool}" --no-appstream "$APPDIR" "$OUT.tmp"
+# Update information for AppImage update tools (Gear Lever, AppImageUpdate): they read the
+# newest release's .zsync, which CI makes after giving the AppImage its versioned name.
+UPDATE_INFO="gh-releases-zsync|50hoursaweek|hushhour|latest|HushHour-*-x86_64.AppImage.zsync"
+ARCH=x86_64 "${APPIMAGETOOL:-appimagetool}" --no-appstream -u "$UPDATE_INFO" "$APPDIR" "$OUT.tmp"
+# A .zsync made here would name the temporary file; CI writes the real one.
+rm -f "$OUT.tmp.zsync"
 mv -f "$OUT.tmp" "$OUT"
 ls -la "$OUT"

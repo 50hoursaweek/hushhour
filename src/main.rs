@@ -10,6 +10,7 @@ mod prefs;
 mod preview;
 mod recent;
 mod sound;
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,7 +34,7 @@ use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
 use music::{Music, MusicDirs};
-use prefs::{Backdrop, FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet, ViewMode};
+use prefs::{Backdrop, FontKind, UpdateCheck, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet, ViewMode};
 use stats::Stats;
 
 const APP_NAME: &str = "HushHour";
@@ -50,6 +51,8 @@ const UI_FONT: Font = Font {
     style: iced::font::Style::Normal,
 };
 const DRAG_STRIP: f32 = 28.0;
+/// What the update question says, in the welcome dialog and in its own dialog.
+const UPDATE_QUESTION: &str = "HushHour can check GitHub once a day for a new version and tell you in the status bar. It sends nothing about you or your documents.";
 /// Status bar text fades this far towards the page colour: 4.5:1 or better in every theme.
 const STATUS_FADE: f32 = 0.3;
 // Text column layout. The measure is set in characters of the window's base size
@@ -79,6 +82,8 @@ enum Dialog {
     Appearance,
     Sound,
     About,
+    /// Asks once whether HushHour may check for updates (for users past the welcome dialog).
+    Updates,
 }
 
 /// An action that would lose unsaved changes and therefore waits for the user's answer.
@@ -171,6 +176,13 @@ struct HushHour {
     focused: bool,
     /// Debug: a `--screenshot` capture is pending.
     capturing: bool,
+    /// A newer release than this build, found by the update check.
+    update_available: Option<update::Release>,
+    /// What the last update check said, for the About dialog.
+    update_status: Option<String>,
+    update_checking: bool,
+    /// Debug `--check-update`: print the result of one check and quit.
+    update_once: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +256,12 @@ enum Message {
     SetFrostTransparency(f32),
     SetFrostThickness(f32),
     SetBackdrop(Backdrop),
+    SetUpdateCheck(UpdateCheck),
+    /// Time to see whether an update check is due.
+    UpdateDue,
+    /// Debug `--check-update`: check now, print the result and quit.
+    CheckUpdateNow,
+    UpdateChecked(Result<update::Release, String>),
     /// Advances the background animation (only while a pattern is shown and the window has focus).
     BackdropTick(Instant),
     WindowFocused(bool),
@@ -256,10 +274,12 @@ impl HushHour {
         // Create the user's folder so it is easy to find and drop tracks into.
         let _ = std::fs::create_dir_all(&music_dirs.user);
         let mut app = Self::fresh(Preferences::load(), recent::load(), music_dirs);
-        if app.prefs.show_welcome {
-            app.dialog = Some(Dialog::Welcome);
-        }
-        let mut tasks = vec![iced::widget::operation::focus_next()];
+        app.dialog = first_dialog(&app.prefs, update::in_flatpak());
+        // The first update check waits until the window and the document have settled.
+        let mut tasks = vec![
+            iced::widget::operation::focus_next(),
+            after(Duration::from_secs(10)).map(|_| Message::UpdateDue),
+        ];
         if let Some(path) = app.apply_args(std::env::args_os().skip(1), &mut tasks) {
             let read = app.read(path);
             // `--line=N` applies once the file is in, not to the empty document before it.
@@ -318,7 +338,12 @@ impl HushHour {
             last_typed: None,
             focused: true,
             capturing: false,
+            update_available: None,
+            update_status: None,
+            update_checking: false,
+            update_once: false,
         };
+        app.update_available = app.known_update();
         app.refresh_music_options();
         // Music is never started automatically; only its volume is remembered.
         app.sound.set_music_volume(app.prefs.music_volume);
@@ -343,6 +368,11 @@ impl HushHour {
                 Some("--dialog=about") => app.dialog = Some(Dialog::About),
                 Some("--dialog=welcome") => app.dialog = Some(Dialog::Welcome),
                 Some("--dialog=unsaved") => app.dialog = Some(Dialog::Unsaved(Pending::Quit)),
+                Some("--dialog=updates") => app.dialog = Some(Dialog::Updates),
+                Some("--check-update") => {
+                    app.persist = false;
+                    tasks.push(Task::done(Message::CheckUpdateNow));
+                }
                 // Diagnostic runs leave the configuration directory untouched.
                 Some("--soundtest") => {
                     app.persist = false;
@@ -775,6 +805,56 @@ impl HushHour {
                 self.apply_frost();
                 Task::none()
             }
+            Message::SetUpdateCheck(choice) => {
+                self.prefs.update_check = choice;
+                if self.dialog == Some(Dialog::Updates) {
+                    self.dialog = None;
+                }
+                if choice != UpdateCheck::On {
+                    self.update_available = None;
+                }
+                let save = self.save_prefs();
+                Task::batch([save, self.check_update_if_due()])
+            }
+            Message::UpdateDue => self.check_update_if_due(),
+            Message::CheckUpdateNow => {
+                self.update_once = true;
+                Task::perform(update::check(), Message::UpdateChecked)
+            }
+            Message::UpdateChecked(result) => {
+                self.update_checking = false;
+                if self.update_once {
+                    match &result {
+                        Ok(r) => println!(
+                            "UPDATE latest={} current={} newer={}",
+                            r.label(),
+                            env!("CARGO_PKG_VERSION"),
+                            r.version > update::current()
+                        ),
+                        Err(e) => println!("UPDATE failed: {e}"),
+                    }
+                    return self.quit();
+                }
+                match result {
+                    Ok(release) => {
+                        self.prefs.update_checked = update::now_secs();
+                        self.prefs.update_latest = release.label();
+                        self.update_status = Some(if release.version > update::current() {
+                            format!("Version {} is available.", release.label())
+                        } else {
+                            "You have the latest version.".to_owned()
+                        });
+                        self.update_available = self.known_update();
+                        self.save_prefs()
+                    }
+                    Err(e) => {
+                        // Offline, say: say nothing in the window, try again at the next tick.
+                        eprintln!("hushhour: update check failed: {e}");
+                        self.update_status = Some("The last check could not reach GitHub.".to_owned());
+                        Task::none()
+                    }
+                }
+            }
             Message::SetBackdrop(backdrop) => {
                 self.prefs.backdrop = backdrop;
                 self.backdrop_tick = None;
@@ -1014,6 +1094,85 @@ impl HushHour {
     fn attach_frost(&mut self) -> Task<Message> {
         self.frost_attach_started = true;
         window::latest().and_then(|id| window::run(id, |w| frost::Frost::attach(w))).map(Message::FrostAttached)
+    }
+
+    /// The welcome dialog's update question: two buttons until answered, then what was chosen.
+    fn update_question<'a>(&self, question: iced::widget::Text<'a>) -> Element<'a, Message> {
+        if update::in_flatpak() {
+            return muted_text("Updates come from Flatpak.");
+        }
+        match self.prefs.update_check {
+            UpdateCheck::Ask => column![
+                question,
+                row![
+                    dialog_button("Don't check", Message::SetUpdateCheck(UpdateCheck::Off)),
+                    dialog_button("Check once a day", Message::SetUpdateCheck(UpdateCheck::On)),
+                ]
+                .spacing(8),
+            ]
+            .spacing(8)
+            .into(),
+            UpdateCheck::On => muted_text("HushHour checks GitHub for a new version once a day. You can turn this off in About."),
+            UpdateCheck::Off => muted_text("HushHour does not check for updates. You can turn this on in About."),
+        }
+    }
+
+    /// The About dialog's switch for update checks, with what the last check said.
+    fn update_setting(&self) -> Element<'_, Message> {
+        if update::in_flatpak() {
+            return space().height(0).into();
+        }
+        let on = self.prefs.update_check == UpdateCheck::On;
+        let status = match (&self.update_status, on) {
+            (_, false) => "Not checking for updates.".to_owned(),
+            (Some(status), true) => status.clone(),
+            (None, true) if self.prefs.update_checked == 0 => "Not checked yet.".to_owned(),
+            (None, true) => match &self.update_available {
+                Some(r) => format!("Version {} is available.", r.label()),
+                None => "You have the latest version.".to_owned(),
+            },
+        };
+        column![
+            toggler(on)
+                .label("Check for updates once a day")
+                .on_toggle(|on| Message::SetUpdateCheck(if on { UpdateCheck::On } else { UpdateCheck::Off }))
+                .size(16.0)
+                .text_size(13.0)
+                .font(UI_FONT),
+            muted_text(status),
+        ]
+        .spacing(4)
+        .align_x(iced::Alignment::Center)
+        .padding(Padding::new(0.0).top(8.0))
+        .into()
+    }
+
+    /// Update checks run only when the user said yes, outside tests and debug captures,
+    /// and not in a Flatpak (Flatpak updates the app itself).
+    fn update_checks_allowed(&self) -> bool {
+        self.prefs.update_check == UpdateCheck::On && self.persist && !update::in_flatpak()
+    }
+
+    /// Start an update check if checks are on and the last one is a day old.
+    fn check_update_if_due(&mut self) -> Task<Message> {
+        let due = update::now_secs().saturating_sub(self.prefs.update_checked) >= update::INTERVAL_SECS;
+        if !self.update_checks_allowed() || self.update_checking || !due {
+            return Task::none();
+        }
+        self.update_checking = true;
+        Task::perform(update::check(), Message::UpdateChecked)
+    }
+
+    /// The newest release the last check found, if it is newer than this build.
+    fn known_update(&self) -> Option<update::Release> {
+        if self.prefs.update_check != UpdateCheck::On {
+            return None;
+        }
+        let version = update::parse_version(&self.prefs.update_latest)?;
+        (version > update::current()).then(|| update::Release {
+            version,
+            url: format!("{REPOSITORY}/releases/tag/v{}", self.prefs.update_latest),
+        })
     }
 
     /// The background pattern is drawn unless it is off or the frosted glass is on (the
@@ -1389,6 +1548,10 @@ impl HushHour {
                     paragraph("Sound and music is where you pick a typing sound and a background: bundled music loops, generated soundscapes (rain, a night of crickets, a train, a breeze, a drone), or your own tracks."),
                     muted(format!("Your own tracks (mp3, ogg, flac, wav) go in\n{}", self.music_dirs.user.display())),
                     paragraph("Handy keys: Ctrl+D cycles the spotlight (dims everything but the paragraph or sentence you are in), Ctrl+T anchors the caret line mid-screen, Ctrl+S saves, F11 goes fullscreen."),
+                    divider(),
+                    heading("UPDATES"),
+                    self.update_question(paragraph(UPDATE_QUESTION)),
+                    divider(),
                     iced::widget::checkbox(!self.prefs.show_welcome)
                         .label("Don't show this again")
                         .on_toggle(|checked| Message::SetShowWelcome(!checked))
@@ -1509,6 +1672,15 @@ impl HushHour {
                 .spacing(10)
                 .into(),
             ),
+            Dialog::Updates => (
+                "Check for updates?",
+                column![
+                    paragraph(UPDATE_QUESTION),
+                    muted("You can change this later in About.".to_owned()),
+                ]
+                .spacing(10)
+                .into(),
+            ),
             Dialog::About => (
                 "",
                 column![
@@ -1522,6 +1694,7 @@ impl HushHour {
                         link_button("Open licence folder", Message::OpenLicences),
                     ]
                     .spacing(4),
+                    self.update_setting(),
                 ]
                 .spacing(6)
                 .align_x(iced::Alignment::Center)
@@ -1535,6 +1708,7 @@ impl HushHour {
             Dialog::About => 300.0,
             Dialog::Unsaved(_) => 360.0,
             Dialog::Welcome | Dialog::Credits => 440.0,
+            Dialog::Updates => 400.0,
             _ => 380.0,
         };
         let mut card = column![].spacing(14).width(width);
@@ -1547,6 +1721,15 @@ impl HushHour {
                 space().width(Length::Fill),
                 dialog_button("Cancel (Esc)", Message::CloseMenu),
                 dialog_button("Save (Enter)", Message::SaveThen(pending)),
+            ]
+            .spacing(8)
+            .width(Length::Fill)
+            .into()
+        } else if dialog == Dialog::Updates {
+            row![
+                space().width(Length::Fill),
+                dialog_button("Don't check", Message::SetUpdateCheck(UpdateCheck::Off)),
+                dialog_button("Check once a day", Message::SetUpdateCheck(UpdateCheck::On)),
             ]
             .spacing(8)
             .width(Length::Fill)
@@ -1589,7 +1772,13 @@ impl HushHour {
         } else {
             Subscription::none()
         };
-        Subscription::batch([keys, resizes, closes, backdrop])
+        // An hourly look at whether the daily update check is due.
+        let updates = if self.update_checks_allowed() {
+            iced::time::every(Duration::from_secs(60 * 60)).map(|_| Message::UpdateDue)
+        } else {
+            Subscription::none()
+        };
+        Subscription::batch([keys, resizes, closes, backdrop, updates])
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1796,6 +1985,10 @@ impl HushHour {
             space().width(Length::Fill),
             muted(self.notice.clone().unwrap_or_default()),
             space().width(16),
+            match &self.update_available {
+                Some(r) => Element::from(item(format!("HushHour {} is available", r.label()), true, Message::OpenLink(r.url.clone()))),
+                None => space().width(0).into(),
+            },
             item(
                 format!("Spotlight: {}", self.prefs.focus.label()),
                 self.prefs.focus != FocusMode::Off,
@@ -1892,6 +2085,30 @@ fn muted<'a>(s: String) -> iced::widget::Text<'a> {
 }
 
 /// Small caps-style section heading.
+/// The dialog shown at launch: the welcome until dismissed for good, else the one-off
+/// update question while it is unanswered (never in a Flatpak).
+fn first_dialog(prefs: &Preferences, flatpak: bool) -> Option<Dialog> {
+    if prefs.show_welcome {
+        Some(Dialog::Welcome)
+    } else if prefs.update_check == UpdateCheck::Ask && !flatpak {
+        Some(Dialog::Updates)
+    } else {
+        None
+    }
+}
+
+/// Small secondary text in a dialog.
+fn muted_text<'a>(s: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(s)
+        .size(13.0)
+        .font(UI_FONT)
+        .style(|theme: &Theme| {
+            let p = theme.palette();
+            text::Style { color: Some(mix(p.text, p.background, 0.32)) }
+        })
+        .into()
+}
+
 fn heading<'a>(s: &'static str) -> iced::widget::Text<'a> {
     text(s).size(12.0).font(UI_FONT).style(|theme: &Theme| {
         let p = theme.palette();
@@ -2643,6 +2860,37 @@ mod tests {
             let placeholder = contrast(mix(p.text, p.background, backdrop::MAX_SECONDARY_FADE), ground);
             assert!(placeholder >= 4.5, "{theme}: placeholder {placeholder:.2}");
         }
+    }
+
+    /// Updates: asked in the welcome dialog, or once in its own dialog for users past the
+    /// welcome; nothing is checked until the answer is yes, and never in tests or a Flatpak.
+    #[test]
+    fn update_check_is_asked_before_anything_is_checked() {
+        let mut prefs = Preferences::default();
+        assert_eq!(prefs.update_check, UpdateCheck::Ask);
+        assert_eq!(first_dialog(&prefs, false), Some(Dialog::Welcome));
+        prefs.show_welcome = false;
+        assert_eq!(first_dialog(&prefs, false), Some(Dialog::Updates));
+        assert_eq!(first_dialog(&prefs, true), None, "Flatpak updates the app itself");
+        prefs.update_check = UpdateCheck::Off;
+        assert_eq!(first_dialog(&prefs, false), None, "answered: not asked again");
+
+        let mut a = app();
+        a.dialog = Some(Dialog::Updates);
+        let _ = a.update(Message::SetUpdateCheck(UpdateCheck::On));
+        assert_eq!((a.prefs.update_check, a.dialog), (UpdateCheck::On, None));
+        let _ = a.update(Message::UpdateDue);
+        assert!(!a.update_checking, "no network in tests (persist is off)");
+
+        // A newer release found earlier shows in the status bar, and only while checks are on.
+        a.prefs.update_latest = "99.0.0".to_owned();
+        let r = a.known_update().expect("newer release");
+        assert_eq!(r.url, format!("{REPOSITORY}/releases/tag/v99.0.0"));
+        a.prefs.update_latest = env!("CARGO_PKG_VERSION").to_owned();
+        assert_eq!(a.known_update(), None, "this version is not an update");
+        a.prefs.update_latest = "99.0.0".to_owned();
+        let _ = a.update(Message::SetUpdateCheck(UpdateCheck::Off));
+        assert_eq!((a.known_update(), a.update_available.clone()), (None, None));
     }
 
     /// Preview links open only web and mail addresses.

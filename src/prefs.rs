@@ -144,6 +144,34 @@ impl fmt::Display for Backdrop {
     }
 }
 
+/// Whether HushHour may check GitHub for a newer release. `Ask` until the user answers
+/// (in the welcome dialog, or a one-off dialog); nothing is checked before that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UpdateCheck {
+    #[default]
+    Ask,
+    On,
+    Off,
+}
+
+impl UpdateCheck {
+    pub const ALL: [Self; 3] = [Self::Ask, Self::On, Self::Off];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ask => "Ask",
+            Self::On => "On",
+            Self::Off => "Off",
+        }
+    }
+}
+
+impl fmt::Display for UpdateCheck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 /// What the window shows: the editor, the editor beside a live preview, or the preview alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
@@ -206,6 +234,11 @@ pub struct Preferences {
     pub show_welcome: bool,
     pub frost: bool,
     pub backdrop: Backdrop,
+    pub update_check: UpdateCheck,
+    /// When the last update check succeeded, in seconds since the Unix epoch (0 = never).
+    pub update_checked: u64,
+    /// The newest release that check found ("0.5.1"), so its notice survives a restart.
+    pub update_latest: String,
     /// 0..=0.9: how see-through the page is when frosted.
     pub frost_transparency: f32,
     /// 0..=1: how heavily the backdrop is frosted, where the compositor can.
@@ -232,6 +265,9 @@ impl Default for Preferences {
             show_welcome: true,
             frost: false,
             backdrop: Backdrop::Off,
+            update_check: UpdateCheck::Ask,
+            update_checked: 0,
+            update_latest: String::new(),
             frost_transparency: 0.35,
             frost_thickness: 0.6,
             music: Music::Off,
@@ -288,6 +324,9 @@ impl Preferences {
                 "show_welcome" => prefs.show_welcome = parse_bool(value).unwrap_or(prefs.show_welcome),
                 "frost" => prefs.frost = parse_bool(value).unwrap_or(prefs.frost),
                 "background" => prefs.backdrop = pick(&Backdrop::ALL, value).unwrap_or(prefs.backdrop),
+                "update_check" => prefs.update_check = pick(&UpdateCheck::ALL, value).unwrap_or(prefs.update_check),
+                "update_checked" => prefs.update_checked = value.parse().unwrap_or(prefs.update_checked),
+                "update_latest" => prefs.update_latest = value.to_owned(),
                 "frost_transparency" => prefs.frost_transparency = parse_clamped(value, 0.0, MAX_TRANSPARENCY).unwrap_or(prefs.frost_transparency),
                 "frost_thickness" => prefs.frost_thickness = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.frost_thickness),
                 _ => {}
@@ -303,7 +342,7 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nbackground = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nbackground = {}\nupdate_check = {}\nupdate_checked = {}\nupdate_latest = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
@@ -317,6 +356,9 @@ impl Preferences {
             self.show_welcome,
             self.frost,
             self.backdrop.label(),
+            self.update_check.label(),
+            self.update_checked,
+            self.update_latest,
             self.frost_transparency,
             self.frost_thickness,
         )
@@ -382,6 +424,9 @@ mod tests {
             show_welcome: false,
             frost: true,
             backdrop: Backdrop::Swell,
+            update_check: UpdateCheck::On,
+            update_checked: 1_791_820_000,
+            update_latest: "0.5.1".to_owned(),
             frost_transparency: 0.5,
             frost_thickness: 0.25,
             music: Music::Off,

@@ -48,7 +48,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libfuse2 file
+          sudo apt-get install -y --no-install-recommends libfuse2 file zsync
           curl -sSL -o /usr/local/bin/appimagetool \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /usr/local/bin/appimagetool
@@ -72,5 +72,9 @@ jobs:
           TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
         run: |
           version=${TAG#v}
-          cp dist/HushHour-x86_64.AppImage "HushHour-${version}-x86_64.AppImage"
-          gh release upload "$TAG" "HushHour-${version}-x86_64.AppImage" --clobber
+          appimage="HushHour-${version}-x86_64.AppImage"
+          cp dist/HushHour-x86_64.AppImage "$appimage"
+          # For AppImage update tools: the update information embedded by build-appimage.sh
+          # points at the newest release's HushHour-*-x86_64.AppImage.zsync.
+          zsyncmake -u "$appimage" -o "$appimage.zsync" "$appimage"
+          gh release upload "$TAG" "$appimage" "$appimage.zsync" --clobber

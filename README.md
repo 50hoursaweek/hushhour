@@ -67,7 +67,7 @@ The ☰ button in the top-left corner opens the menu: file actions and the recen
 Appearance and Sound and music, which open dialogs, then the Writing and Window sections,
 then About.
 
-Preferences (theme, font, size, line height, spotlight, anchor, background) are
+Preferences (theme, font, size, line height, spotlight, anchor, background, update checks) are
 saved to `~/.config/hushhour/preferences` whenever they change; the last eight files opened
 or saved are listed in the menu and kept in `~/.config/hushhour/recent`. In the Flatpak these
 are `~/.var/app/io.github._50hoursaweek.hushhour/config/hushhour/preferences` and
@@ -91,13 +91,23 @@ into a cached texture, redrawn only when it moves; with the software renderer th
 plain. Every
 launch starts in the editor view; split and preview last for the session.
 
+Updates: the welcome dialog (or, for anyone past it, a one-off dialog) asks whether HushHour
+may check GitHub for a new version once a day; nothing is checked until the answer is yes, and
+the switch is in About afterwards. The check fetches
+`https://github.com/50hoursaweek/hushhour/releases/latest` without following the redirect and
+reads the release it points to; nothing about you or your documents is sent. A newer release
+shows as "HushHour x.y.z is available" in the status bar, which opens the release page. The
+AppImage also carries standard update information, so AppImage update tools (Gear Lever,
+AppImageUpdate) can update it in place from each release's `.zsync` file. Inside a Flatpak,
+Flatpak handles updates and the question is not asked.
+
 The text column is at most 66 characters wide and centred; zooming reflows the text and
 keeps the margins. The About dialog shows the version and build number and links to the
 credits and the installed licence texts. `build.rs` increments `build-number` on every
 build that follows a source change; set `HUSHHOUR_BUILD` in the environment for a
 reproducible build (Flathub and CI do), and the file is left alone.
 
-Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--view=split|preview` starts in that view, `--size=WxH` sets the window size, `--screenshot=PATH` captures the window and quits, `--line=N` puts the caret on a line, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
+Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--view=split|preview` starts in that view, `--dialog=updates` opens the update question, `--check-update` checks GitHub once, prints the result and exits, `--size=WxH` sets the window size, `--screenshot=PATH` captures the window and quits, `--line=N` puts the caret on a line, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Layout
@@ -107,6 +117,7 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/editor/mod.rs` – cosmic-text buffer access and caret geometry
 - `src/history.rs` – undo/redo as coalesced text deltas
 - `src/highlight.rs` – line-based Markdown highlighter plus spotlight dimming
+- `src/update.rs` – the optional daily update check against GitHub Releases
 - `src/backdrop.rs` – the animated background as an iced shader widget (patterns and motion in `core/src/backdrop.rs`)
 - `src/palette.rs` – light, sepia and dark colour schemes
 - `src/prefs.rs` – user preferences and their on-disk format
