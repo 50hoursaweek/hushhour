@@ -69,6 +69,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.3.1" date="2026-10-12">
+      <description>
+        <p>Easier to read on standard-density monitors: the menu and dialogs use Lato Regular instead of Lato Light, and secondary text and the status bar have more contrast and a slightly larger size.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-12">
       <description>
         <p>Markdown preview: show the formatted document beside the editor or on its own (Ctrl+Shift+P cycles editor, split and preview), updated live as you type and scrolled to follow the caret. Links in the preview open in the browser.</p>

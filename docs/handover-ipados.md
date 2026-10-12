@@ -33,7 +33,7 @@ Features the iPad version must reproduce to be the same product:
 
 - The page is the whole window; a 66-character measure, centred; margins do not move when the
   text size changes.
-- Three fonts: IBM Plex Mono, IBM Plex Sans, Literata (bundled, OFL). Lato Light for dialogs.
+- Three fonts: IBM Plex Mono, IBM Plex Sans, Literata (bundled, OFL). Lato Regular for dialogs (Light was too thin at display scale 1).
 - Light and dark themes (`src/palette.rs`), size and line-height settings.
 - **Spotlight**: dims everything except the current paragraph or sentence (`src/highlight.rs`,
   `sentence_at`). **Anchor**: keeps the caret line at a fixed height (typewriter scrolling).

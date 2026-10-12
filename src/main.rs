@@ -39,10 +39,11 @@ const APP_NAME: &str = "HushHour";
 const BUILD: &str = env!("HUSHHOUR_BUILD");
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 const REPOSITORY: &str = "https://github.com/50hoursaweek/hushhour";
-/// The menu and dialogs use Lato Light; the editor uses Plex Mono, Plex Sans and Literata.
+/// The menu and dialogs use Lato Regular (Light was too thin to read at a display scale
+/// of 1); the editor uses Plex Mono, Plex Sans and Literata.
 const UI_FONT: Font = Font {
     family: iced::font::Family::Name("Lato"),
-    weight: iced::font::Weight::Light,
+    weight: iced::font::Weight::Normal,
     stretch: iced::font::Stretch::Normal,
     style: iced::font::Style::Normal,
 };
@@ -1642,14 +1643,14 @@ impl HushHour {
             .on_exit(Message::TopStripHovered(false));
 
         let muted = |s: String| {
-            text(s).size(12.0).style(|theme: &Theme| {
+            text(s).size(13.0).style(|theme: &Theme| {
                 let p = theme.palette();
-                text::Style { color: Some(mix(p.text, p.background, 0.45)) }
+                text::Style { color: Some(mix(p.text, p.background, 0.35)) }
             })
         };
         // Status bar items that act as flat buttons: muted text, highlighted on hover.
         let item = |label: String, active: bool, msg: Message| {
-            button(text(label).size(12.0))
+            button(text(label).size(13.0))
                 .padding(Padding::new(2.0).left(6.0).right(6.0))
                 .on_press(msg)
                 .style(move |theme: &Theme, status| {
@@ -1658,7 +1659,7 @@ impl HushHour {
                     let color = if hovered || active {
                         p.text
                     } else {
-                        mix(p.text, p.background, 0.45)
+                        mix(p.text, p.background, 0.35)
                     };
                     button::Style {
                         background: hovered.then(|| iced::Background::Color(mix(p.text, p.background, 0.9))),
@@ -1767,17 +1768,17 @@ fn licences_dir() -> Option<PathBuf> {
 
 /// Dimmed secondary text.
 fn muted<'a>(s: String) -> iced::widget::Text<'a> {
-    text(s).size(12.5).font(UI_FONT).style(|theme: &Theme| {
+    text(s).size(13.0).font(UI_FONT).style(|theme: &Theme| {
         let p = theme.palette();
-        text::Style { color: Some(mix(p.text, p.background, 0.45)) }
+        text::Style { color: Some(mix(p.text, p.background, 0.32)) }
     })
 }
 
 /// Small caps-style section heading.
 fn heading<'a>(s: &'static str) -> iced::widget::Text<'a> {
-    text(s).size(11.5).font(UI_FONT).style(|theme: &Theme| {
+    text(s).size(12.0).font(UI_FONT).style(|theme: &Theme| {
         let p = theme.palette();
-        text::Style { color: Some(mix(p.text, p.background, 0.55)) }
+        text::Style { color: Some(mix(p.text, p.background, 0.42)) }
     })
 }
 
@@ -2058,7 +2059,7 @@ pub fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/Literata-Bold.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/Literata-Italic.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/Literata-BoldItalic.ttf").as_slice())
-        .font(include_bytes!("../assets/fonts/Lato-Light.ttf").as_slice())
+        .font(include_bytes!("../assets/fonts/Lato-Regular.ttf").as_slice())
         // Set first: the builder methods below extend these settings. The app id must
         // match the desktop file name so Wayland compositors can find the launcher icon.
         .window(window::Settings {

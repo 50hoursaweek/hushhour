@@ -106,7 +106,7 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/dsp.rs` – filters used by the soundscapes
 - `assets/sounds/` – key samples from a CC0 pack (see `assets/sounds/README.md`)
 - `src/stats.rs` – word, character, sentence counts and reading time
-- `assets/fonts/` – IBM Plex Mono, IBM Plex Sans and Literata for the editor, Lato Light for the menu and dialogs (all SIL OFL)
+- `assets/fonts/` – IBM Plex Mono, IBM Plex Sans and Literata for the editor, Lato Regular for the menu and dialogs (all SIL OFL)
 
 ## Licence
 

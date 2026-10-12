@@ -1,6 +1,6 @@
 # Lato
 
-`Lato-Light.ttf` is Lato by Łukasz Dziedzic, licensed under the SIL Open Font License 1.1
+`Lato-Regular.ttf` is Lato by Łukasz Dziedzic, licensed under the SIL Open Font License 1.1
 (https://scripts.sil.org/OFL), obtained from https://github.com/google/fonts/tree/main/ofl/lato.
 It is used for the menu and dialogs.
 
