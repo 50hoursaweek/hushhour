@@ -1382,7 +1382,7 @@ impl HushHour {
             Dialog::Welcome => (
                 "Welcome to HushHour",
                 column![
-                    paragraph("A quiet place to write Markdown. The page is the whole window: there is no toolbar, and the window has no title bar."),
+                    paragraph("A quiet place to write. The page is the whole window: there is no toolbar, and the window has no title bar."),
                     paragraph("The ☰ button in the top-left corner (or Ctrl+,) opens the menu, with file actions, Appearance, and Sound and music."),
                     paragraph("Sound and music is where you pick a typing sound and a background: bundled music loops, generated soundscapes (rain, a night of crickets, a train, a breeze, a drone), or your own tracks."),
                     muted(format!("Your own tracks (mp3, ogg, flac, wav) go in\n{}", self.music_dirs.user.display())),
