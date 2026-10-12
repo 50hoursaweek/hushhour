@@ -49,6 +49,7 @@ dependencies.
 | Ctrl+O / Ctrl+S / Ctrl+Shift+S / Ctrl+N | Open, save, save as, new |
 | Ctrl+D | Cycle the spotlight: off, paragraph, sentence |
 | Ctrl+T | Toggle the anchor (the caret line stays vertically centred) |
+| Ctrl+Shift+P | Cycle the view: editor, split (editor beside a live preview), preview |
 | Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | Undo, redo |
 | Ctrl+Shift+T | Cycle theme: light, sepia, dark |
 | Ctrl+Shift+F | Cycle font: Mono, Sans, Serif |

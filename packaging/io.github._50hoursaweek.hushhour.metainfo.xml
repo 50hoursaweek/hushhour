@@ -21,6 +21,10 @@
       and three bundled writing fonts come with it.
     </p>
     <p>
+      A live preview shows the formatted document beside the editor or in place of it,
+      updating as you type.
+    </p>
+    <p>
       Typing sounds and background music keep you company: gentle key sounds,
       bundled instrumental loops, generated soundscapes (rain, a night of crickets,
       a train, a breeze, a drone), or your own tracks.
@@ -33,19 +37,23 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.2/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.0/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The spotlight on one paragraph, dark theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.2/packaging/screenshots/editor-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.0/packaging/screenshots/editor-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The editor beside its live preview</caption>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.0/packaging/screenshots/split-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.2/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.0/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.2.2/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.0/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -61,6 +69,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.3.0" date="2026-10-12">
+      <description>
+        <p>Markdown preview: show the formatted document beside the editor or on its own (Ctrl+Shift+P cycles editor, split and preview), updated live as you type and scrolled to follow the caret. Links in the preview open in the browser.</p>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-10-12">
       <description>
         <p>Shared crate: undo and redo availability is exposed for the ports. No change in behaviour.</p>

@@ -6,6 +6,7 @@ mod frost;
 mod highlight;
 mod palette;
 mod prefs;
+mod preview;
 mod recent;
 mod sound;
 
@@ -30,7 +31,7 @@ use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
 use music::{Music, MusicDirs};
-use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet};
+use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet, ViewMode};
 use stats::Stats;
 
 const APP_NAME: &str = "HushHour";
@@ -122,6 +123,10 @@ struct HushHour {
     persist: bool,
     /// Where the recent list is written when persisting; `None` keeps it in memory only.
     recent_store: Option<PathBuf>,
+    /// The preview model, rebuilt from the text while a preview is on screen; empty otherwise.
+    preview: hushhour_core::preview::Document,
+    /// The caret line the preview was last scrolled to, so it only moves when the caret does.
+    preview_synced_line: Option<usize>,
     /// Debug `--line=N`: where to put the caret once the file given on the command line is in.
     line_after_load: Option<usize>,
     /// Byte limit for the document: `MAX_DOCUMENT_BYTES`, smaller in tests. Every growing
@@ -179,6 +184,10 @@ enum Message {
     KeyPressed(Key, Modifiers),
     SelfTest,
     SoundTest,
+    SetView(ViewMode),
+    CycleView,
+    /// A link clicked in the preview; only web and mail addresses are opened.
+    OpenLink(String),
     /// Debug: capture the window into a PNG once it has settled, then quit.
     Screenshot(PathBuf),
     /// Debug: put the caret at the start of a line (after the file has loaded).
@@ -265,6 +274,8 @@ impl HushHour {
             recent_store: recent::path(),
             size_limit: MAX_DOCUMENT_BYTES,
             line_after_load: None,
+            preview: hushhour_core::preview::Document::default(),
+            preview_synced_line: None,
             pending_open: None,
             saving: false,
             sound: sound::Sound::start(music_dirs.clone()),
@@ -411,21 +422,22 @@ impl HushHour {
                     self.stats = stats::compute(&new_text);
                     self.text = new_text;
                     self.update_dirty();
+                    self.refresh_preview();
                 }
                 self.refresh_focus();
-                Task::none()
+                self.sync_preview()
             }
             Message::Undo => {
                 if let Some(d) = self.history.undo() {
                     self.apply(d.offset, d.inserted.len(), &d.removed, iced_pos(d.cursor_before));
                 }
-                Task::none()
+                self.sync_preview()
             }
             Message::Redo => {
                 if let Some(d) = self.history.redo() {
                     self.apply(d.offset, d.removed.len(), &d.inserted, iced_pos(d.cursor_after));
                 }
-                Task::none()
+                self.sync_preview()
             }
             Message::New => {
                 if self.dirty {
@@ -562,6 +574,24 @@ impl HushHour {
                 }
             }
             Message::CycleFocus => self.update(Message::SetFocus(self.prefs.focus.next())),
+            Message::CycleView => self.update(Message::SetView(self.prefs.view.next())),
+            Message::SetView(view) => {
+                self.prefs.view = view;
+                self.refresh_preview();
+                // Scroll the preview to the caret on arrival, wherever it was.
+                self.preview_synced_line = None;
+                let save = self.save_prefs();
+                let sync = self.sync_preview();
+                // Back to a view with the editor: give it the keyboard again.
+                let focus = if view.shows_editor() { iced::widget::operation::focus_next() } else { Task::none() };
+                Task::batch([save, sync, focus])
+            }
+            Message::OpenLink(url) => {
+                if preview::openable(&url) {
+                    let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                }
+                Task::none()
+            }
             Message::ToggleTypewriter => self.update(Message::SetTypewriter(!self.prefs.typewriter)),
             Message::CycleTheme => self.update(Message::SetTheme(self.prefs.theme.next())),
             Message::CycleFont => self.update(Message::SetFont(self.prefs.font.next())),
@@ -988,7 +1018,38 @@ impl HushHour {
         self.replace_authorised = None;
         self.pending_open = None;
         self.notice = None;
+        self.preview_synced_line = None;
+        self.refresh_preview();
         self.refresh_focus();
+    }
+
+    /// Rebuild the preview model from the text, but only while a preview is shown:
+    /// in the editor-only view nothing is parsed.
+    fn refresh_preview(&mut self) {
+        self.preview = if self.prefs.view.shows_preview() {
+            hushhour_core::preview::parse(&self.text)
+        } else {
+            hushhour_core::preview::Document::default()
+        };
+    }
+
+    /// Keep the preview roughly level with the caret: when the caret moves to another
+    /// line, scroll the preview to the same fraction of the document.
+    fn sync_preview(&mut self) -> Task<Message> {
+        if !self.prefs.view.shows_preview() {
+            return Task::none();
+        }
+        let line = self.content.cursor().position.line;
+        if self.preview_synced_line == Some(line) {
+            return Task::none();
+        }
+        self.preview_synced_line = Some(line);
+        let last = self.content.line_count().saturating_sub(1).max(1);
+        let y = (line as f32 / last as f32).clamp(0.0, 1.0);
+        iced::widget::operation::snap_to(
+            iced::widget::Id::new(preview::SCROLL_ID),
+            iced::widget::operation::RelativeOffset { x: None, y: Some(y) },
+        )
     }
 
     /// Replace `remove_len` bytes at `offset` with `insert`, then place the cursor.
@@ -1011,6 +1072,7 @@ impl HushHour {
         self.content.move_to(Cursor { position: cursor, selection: None });
         self.text = self.content.text();
         self.stats = stats::compute(&self.text);
+        self.refresh_preview();
         self.edits += 1;
         self.update_dirty();
         self.refresh_focus();
@@ -1222,6 +1284,7 @@ impl HushHour {
                 "Anchor",
                 toggler(self.prefs.typewriter).on_toggle(Message::SetTypewriter).size(18.0),
             ),
+            setting("View", pick(&ViewMode::ALL, self.prefs.view, Message::SetView)),
             divider(),
             heading("WINDOW"),
             action("Fullscreen", "F11", Message::ToggleFullscreen),
@@ -1504,7 +1567,37 @@ impl HushHour {
             .width(Length::Fill)
             .max_width(measure + 2.0 * side_padding)
             .height(Length::Fill);
-        let page = container(column).center_x(Length::Fill).height(Length::Fill);
+        let editor_page = container(column).center_x(Length::Fill).height(Length::Fill);
+        let preview_page = || {
+            preview::view(
+                &self.preview,
+                preview::Look::new(&self.prefs.theme.theme(), self.prefs.font.family(), size, self.prefs.line_height),
+                Padding::new(64.0).top(64.0 - DRAG_STRIP).left(side_padding).right(side_padding),
+                measure + 2.0 * side_padding,
+            )
+        };
+        let page: Element<'_, Message> = match self.prefs.view {
+            ViewMode::Editor => editor_page.into(),
+            ViewMode::Preview => preview_page(),
+            ViewMode::Split => {
+                let divider = rule::vertical(1).style(|theme: &Theme| {
+                    let p = theme.palette();
+                    rule::Style {
+                        color: mix(p.text, p.background, 0.88),
+                        radius: 0.0.into(),
+                        fill_mode: rule::FillMode::Padded(24),
+                        snap: true,
+                    }
+                });
+                row![
+                    container(editor_page).width(Length::FillPortion(1)),
+                    divider,
+                    container(preview_page()).width(Length::FillPortion(1)),
+                ]
+                .height(Length::Fill)
+                .into()
+            }
+        };
 
         // Without window decorations this strip is the handle for moving the
         // window; double-click maximises, like a title bar would.
@@ -1595,6 +1688,7 @@ impl HushHour {
                 self.prefs.typewriter,
                 Message::ToggleTypewriter,
             ),
+            item(self.prefs.view.label().to_owned(), self.prefs.view != ViewMode::Editor, Message::CycleView),
             item(self.prefs.font.label().to_owned(), false, Message::CycleFont),
             item(self.prefs.theme.label().to_owned(), false, Message::CycleTheme),
         ]
@@ -1819,6 +1913,8 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Message> {
         Key::Character("t") if shift => Some(Message::CycleTheme),
         Key::Character("T") => Some(Message::CycleTheme),
         Key::Character("t") => Some(Message::ToggleTypewriter),
+        Key::Character("p") if shift => Some(Message::CycleView),
+        Key::Character("P") => Some(Message::CycleView),
         Key::Character("f") if shift => Some(Message::CycleFont),
         Key::Character("F") => Some(Message::CycleFont),
         Key::Character("=") | Key::Character("+") => Some(Message::ZoomIn),
@@ -2327,6 +2423,63 @@ mod tests {
         let _ = a.update(Message::Undo);
         let _ = a.update(Message::Redo);
         assert!(a.text.len() as u64 <= a.size_limit);
+    }
+
+    /// Preview: the view cycles Editor, Split, Preview; the model follows the text live
+    /// while a preview is shown, and nothing is parsed in the editor-only view.
+    #[test]
+    fn preview_follows_the_text_and_the_view() {
+        use hushhour_core::preview::{Block, plain};
+        let mut a = app();
+        type_text(&mut a, "# Hi");
+        assert_eq!(a.prefs.view, ViewMode::Editor);
+        assert!(a.preview.blocks.is_empty(), "no parsing while only the editor is shown");
+        let _ = a.update(Message::CycleView);
+        assert_eq!(a.prefs.view, ViewMode::Split);
+        assert!(matches!(&a.preview.blocks[..], [Block::Heading { level: 1, inlines, .. }] if plain(inlines) == "Hi"));
+        // Live: typing updates the model at once, undo too.
+        type_text(&mut a, "\n\n- item");
+        assert!(matches!(&a.preview.blocks[..], [Block::Heading { .. }, Block::List { .. }]), "{:?}", a.preview.blocks);
+        // Undo steps move the model with the text, back to the heading alone.
+        while a.content.text() != "# Hi" {
+            let _ = a.update(Message::Undo);
+            assert_eq!(a.preview, hushhour_core::preview::parse(&a.content.text()));
+        }
+        assert_eq!(a.preview.blocks.len(), 1, "{:?}", a.preview.blocks);
+        let _ = a.update(Message::CycleView);
+        assert_eq!(a.prefs.view, ViewMode::Preview);
+        assert_eq!(a.preview.blocks.len(), 1);
+        // A new document clears it.
+        let _ = a.update(Message::Discard(Pending::New));
+        assert!(a.preview.blocks.is_empty());
+        let _ = a.update(Message::CycleView);
+        assert_eq!(a.prefs.view, ViewMode::Editor);
+    }
+
+    /// Preview: with the editor hidden, shortcuts still arrive through the window's
+    /// key events: Ctrl+Shift+P leaves the preview and Ctrl+S still saves.
+    #[test]
+    fn shortcuts_work_while_the_preview_hides_the_editor() {
+        let mut a = app();
+        let ctrl_shift = Modifiers::CTRL | Modifiers::SHIFT;
+        let _ = a.update(Message::KeyPressed(Key::Character("P".into()), ctrl_shift));
+        assert_eq!(a.prefs.view, ViewMode::Split);
+        let _ = a.update(Message::KeyPressed(Key::Character("p".into()), ctrl_shift));
+        assert_eq!(a.prefs.view, ViewMode::Preview);
+        type_text(&mut a, "x");
+        let _ = a.update(Message::KeyPressed(Key::Character("s".into()), Modifiers::CTRL));
+        assert!(a.saving, "Ctrl+S starts a save (Save As for an untitled document)");
+    }
+
+    /// Preview links open only web and mail addresses.
+    #[test]
+    fn only_web_and_mail_links_open() {
+        for url in ["https://example.com", "HTTP://x.y", "mailto:a@b.c", "  https://padded"] {
+            assert!(preview::openable(url), "{url}");
+        }
+        for url in ["file:///etc/passwd", "javascript:alert(1)", "/home/me/doc.md", "x-scheme:run", ""] {
+            assert!(!preview::openable(url), "{url}");
+        }
     }
 
     /// Audit W01: the Open limit is inclusive and matches the edit guard: a document of

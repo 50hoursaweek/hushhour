@@ -105,6 +105,49 @@ impl fmt::Display for SoundSet {
     }
 }
 
+/// What the window shows: the editor, the editor beside a live preview, or the preview alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    #[default]
+    Editor,
+    Split,
+    Preview,
+}
+
+impl ViewMode {
+    pub const ALL: [Self; 3] = [Self::Editor, Self::Split, Self::Preview];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Editor => "Editor",
+            Self::Split => "Split",
+            Self::Preview => "Preview",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Editor => Self::Split,
+            Self::Split => Self::Preview,
+            Self::Preview => Self::Editor,
+        }
+    }
+
+    pub fn shows_editor(self) -> bool {
+        self != Self::Preview
+    }
+
+    pub fn shows_preview(self) -> bool {
+        self != Self::Editor
+    }
+}
+
+impl fmt::Display for ViewMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 /// Everything the user can change from the menu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preferences {
@@ -114,6 +157,7 @@ pub struct Preferences {
     pub line_height: f32,
     pub focus: FocusMode,
     pub typewriter: bool,
+    pub view: ViewMode,
     pub typing_sound: bool,
     pub sound_set: SoundSet,
     /// 0..=1.
@@ -140,6 +184,7 @@ impl Default for Preferences {
             line_height: LINE_HEIGHT,
             focus: FocusMode::Off,
             typewriter: false,
+            view: ViewMode::Editor,
             typing_sound: true,
             sound_set: SoundSet::Soft,
             sound_volume: 0.6,
@@ -194,6 +239,7 @@ impl Preferences {
                         .unwrap_or(prefs.focus)
                 }
                 "typewriter" => prefs.typewriter = parse_bool(value).unwrap_or(prefs.typewriter),
+                "view" => prefs.view = pick(&ViewMode::ALL, value).unwrap_or(prefs.view),
                 "typing_sound" => prefs.typing_sound = parse_bool(value).unwrap_or(prefs.typing_sound),
                 "sound_set" => prefs.sound_set = pick(&SoundSet::ALL, value).unwrap_or(prefs.sound_set),
                 "sound_volume" => prefs.sound_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.sound_volume),
@@ -215,13 +261,14 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\nview = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
             self.line_height,
             self.focus.label(),
             self.typewriter,
+            self.view.label(),
             self.typing_sound,
             self.sound_set.label(),
             self.sound_volume,
@@ -286,6 +333,7 @@ mod tests {
             line_height: 1.8,
             focus: FocusMode::Sentence,
             typewriter: true,
+            view: ViewMode::Split,
             typing_sound: false,
             sound_set: SoundSet::Keyboard,
             sound_volume: 0.25,
