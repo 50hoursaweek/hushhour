@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=HushHour
-Comment=A quiet Markdown editor
+Comment=A quiet place to write
 Exec=hushhour %f
 Icon=io.github._50hoursaweek.hushhour
 Terminal=false

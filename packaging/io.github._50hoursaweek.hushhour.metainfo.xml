@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github._50hoursaweek.hushhour</id>
   <name>HushHour</name>
-  <summary>A quiet Markdown editor</summary>
+  <summary>A quiet place to write</summary>
   <developer id="io.github.50hoursaweek">
     <name>Francesco Di Maggio</name>
   </developer>
