@@ -162,10 +162,8 @@ struct HushHour {
     highlight: HlSettings,
     stats: Stats,
     notice: Option<String>,
-    /// Seconds of background animation; it stops advancing while the user types.
-    backdrop_clock: f32,
-    /// 0 = moving freely, 1 = brought to a stop by typing.
-    backdrop_calm: f32,
+    /// The background's clock, brought to a stop while the user types.
+    motion: backdrop::Motion,
     backdrop_tick: Option<Instant>,
     last_typed: Option<Instant>,
     focused: bool,
@@ -313,8 +311,7 @@ impl HushHour {
             highlight: HlSettings::default(),
             stats: Stats::default(),
             notice: None,
-            backdrop_clock: 7.0,
-            backdrop_calm: 0.0,
+            motion: backdrop::Motion::default(),
             backdrop_tick: None,
             last_typed: None,
             focused: true,
@@ -353,6 +350,13 @@ impl HushHour {
                 // Read in `main` before the window exists; accepted here so it is not "unknown".
                 Some(s) if s.starts_with("--size=") => {}
                 Some(s) if s.starts_with("--line=") => app.line_after_load = s["--line=".len()..].parse().ok(),
+                // Debug: start in another view (the view is not remembered between launches).
+                Some(s) if s.starts_with("--view=") => {
+                    if let Some(view) = ViewMode::ALL.into_iter().find(|v| v.label().eq_ignore_ascii_case(&s["--view=".len()..])) {
+                        app.prefs.view = view;
+                        app.refresh_preview();
+                    }
+                }
                 Some(s) if s.starts_with("--screenshot=") => {
                     app.persist = false;
                     tasks.push(Task::done(Message::Screenshot(PathBuf::from(&s["--screenshot=".len()..]))));
@@ -1016,16 +1020,11 @@ impl HushHour {
         self.prefs.backdrop != Backdrop::Off && !self.prefs.frost
     }
 
-    /// Move the background on by the time since the last tick, slowed by recent typing:
-    /// it eases to a stop within about a second of typing and back over a few seconds after.
+    /// Move the background on by the time since the last tick, slowed by recent typing.
     fn advance_backdrop(&mut self, now: Instant) {
         let Some(last) = self.backdrop_tick.replace(now) else { return };
-        let dt = now.saturating_duration_since(last).as_secs_f32().min(0.25);
-        let typing = self.last_typed.is_some_and(|t| now.saturating_duration_since(t) < Duration::from_millis(1400));
-        let rate = if typing { 3.0 } else { 0.8 };
-        let target = if typing { 1.0 } else { 0.0 };
-        self.backdrop_calm += (target - self.backdrop_calm) * (dt * rate).min(1.0);
-        self.backdrop_clock += dt * (1.0 - self.backdrop_calm);
+        let since_typed = self.last_typed.map(|t| now.saturating_duration_since(t).as_secs_f32());
+        self.motion.advance(now.saturating_duration_since(last).as_secs_f32(), since_typed);
     }
 
     /// Push the current frost settings to the compositor, if attached.
@@ -1581,10 +1580,9 @@ impl HushHour {
         });
         // The window's close button goes through the unsaved-changes guard too.
         let closes = window::close_requests().map(|_| Message::Quit);
-        // The background moves slowly enough to look smooth at 15 frames a second. Once
-        // typing has brought it to a stop, a slow tick is enough to notice the pause.
+        // The background ticks at 15 frames a second, slower once typing has stopped it.
         let backdrop = if self.backdrop_shown() && self.focused && !self.capturing {
-            let interval = if self.backdrop_calm > 0.99 { 250 } else { 66 };
+            let interval = if self.motion.is_resting() { backdrop::RESTING_INTERVAL_MS } else { backdrop::FRAME_INTERVAL_MS };
             iced::time::every(Duration::from_millis(interval)).map(Message::BackdropTick)
         } else {
             Subscription::none()
@@ -1831,14 +1829,16 @@ impl HushHour {
         };
         let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
         let mut layout = stack![].width(Length::Fill).height(Length::Fill);
-        if self.backdrop_shown() {
+        if let Some(pattern) = self.prefs.backdrop.pattern()
+            && self.backdrop_shown()
+        {
             let palette = self.prefs.theme.theme().palette();
             layout = layout.push(
                 iced::widget::shader(backdrop::Program {
-                    pattern: self.prefs.backdrop,
+                    pattern,
                     background: palette.background,
                     text: palette.text,
-                    time: self.backdrop_clock,
+                    time: self.motion.clock,
                     radius,
                 })
                 .width(Length::Fill)
@@ -2596,24 +2596,24 @@ mod tests {
         let start = Instant::now();
         let tick = |a: &mut HushHour, ms: u64| a.advance_backdrop(start + Duration::from_millis(ms));
         tick(&mut a, 0);
-        let c0 = a.backdrop_clock;
+        let c0 = a.motion.clock;
         tick(&mut a, 200);
-        assert!(a.backdrop_clock - c0 > 0.15, "moves while nobody types");
+        assert!(a.motion.clock - c0 > 0.15, "moves while nobody types");
         // Typing brings it to a stop within about a second.
         a.last_typed = Some(start + Duration::from_millis(200));
         for ms in (266..=1400).step_by(66) {
             tick(&mut a, ms);
         }
-        let stopped = a.backdrop_clock;
+        let stopped = a.motion.clock;
         tick(&mut a, 1466);
-        assert!(a.backdrop_clock - stopped < 0.01, "at rest while typing");
+        assert!(a.motion.clock - stopped < 0.01, "at rest while typing");
         // A few seconds after the last key it is moving again.
         for ms in (1532..=6000).step_by(66) {
             tick(&mut a, ms);
         }
-        let c1 = a.backdrop_clock;
+        let c1 = a.motion.clock;
         tick(&mut a, 6066);
-        assert!(a.backdrop_clock - c1 > 0.04, "moving again after a pause");
+        assert!(a.motion.clock - c1 > 0.04, "moving again after a pause");
         let _ = a.update(Message::SetFrost(true));
         assert!(!a.backdrop_shown(), "the frosted glass replaces it");
     }

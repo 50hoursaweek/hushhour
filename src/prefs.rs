@@ -7,6 +7,7 @@ use iced::Font;
 use iced::font::{Family, Stretch, Style as FontStyle, Weight};
 
 use crate::highlight::FocusMode;
+use hushhour_core::backdrop::Pattern;
 use hushhour_core::music::Music;
 use crate::palette::ThemeKind;
 
@@ -124,6 +125,15 @@ impl Backdrop {
             Self::Waves => "Waves",
             Self::Swell => "Swell",
             Self::Drift => "Drift",
+        }
+    }
+
+    pub fn pattern(self) -> Option<Pattern> {
+        match self {
+            Self::Off => None,
+            Self::Waves => Some(Pattern::Waves),
+            Self::Swell => Some(Pattern::Swell),
+            Self::Drift => Some(Pattern::Drift),
         }
     }
 }

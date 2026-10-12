@@ -67,7 +67,7 @@ The ☰ button in the top-left corner opens the menu: file actions and the recen
 Appearance and Sound and music, which open dialogs, then the Writing and Window sections,
 then About.
 
-Preferences (theme, font, size, line height, spotlight, anchor) are
+Preferences (theme, font, size, line height, spotlight, anchor, background) are
 saved to `~/.config/hushhour/preferences` whenever they change; the last eight files opened
 or saved are listed in the menu and kept in `~/.config/hushhour/recent`. In the Flatpak these
 are `~/.var/app/io.github._50hoursaweek.hushhour/config/hushhour/preferences` and
@@ -83,13 +83,19 @@ and PulseAudio desktops provide.
 Frosted glass (Appearance dialog) makes the page translucent; on KDE Plasma the desktop
 behind is blurred as well.
 
+Background (Appearance dialog, off by default) puts a slow, faint pattern behind the page:
+Waves, Swell or Drift, the text colour mixed a few percent into the page colour. It eases to
+a stop while you type, pauses while the window is inactive, and rests while frosted glass is
+on. It is drawn by a GPU shader; with the software renderer the page stays plain. Every
+launch starts in the editor view; split and preview last for the session.
+
 The text column is at most 66 characters wide and centred; zooming reflows the text and
 keeps the margins. The About dialog shows the version and build number and links to the
 credits and the installed licence texts. `build.rs` increments `build-number` on every
 build that follows a source change; set `HUSHHOUR_BUILD` in the environment for a
 reproducible build (Flathub and CI do), and the file is left alone.
 
-Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
+Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--view=split|preview` starts in that view, `--size=WxH` sets the window size, `--screenshot=PATH` captures the window and quits, `--line=N` puts the caret on a line, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Layout
@@ -99,6 +105,7 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 - `src/editor/mod.rs` – cosmic-text buffer access and caret geometry
 - `src/history.rs` – undo/redo as coalesced text deltas
 - `src/highlight.rs` – line-based Markdown highlighter plus spotlight dimming
+- `src/backdrop.rs` – the animated background as an iced shader widget (patterns and motion in `core/src/backdrop.rs`)
 - `src/palette.rs` – light, sepia and dark colour schemes
 - `src/prefs.rs` – user preferences and their on-disk format
 - `src/sound.rs` – mixer thread for key sounds and music, played through ALSA (loaded at runtime)

@@ -1,6 +1,6 @@
 [package]
 name = "hushhour-core"
-version = "0.3.1"
+version = "0.4.0"
 license = "MIT"
 description = "The platform-independent heart of HushHour: Markdown scanning, statistics, undo history, soundscapes and file decoding"
 repository = "https://github.com/50hoursaweek/hushhour"

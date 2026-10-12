@@ -18,7 +18,8 @@
       A spotlight dims everything but the paragraph or sentence you are writing, the
       caret line can be anchored mid-screen so the page scrolls under it, and a
       frosted-glass mode lets the desktop show through. Light, sepia and dark themes
-      and three bundled writing fonts come with it.
+      and three bundled writing fonts come with it, and an optional slow pattern
+      (waves, swell or drift) can move faintly behind the page.
     </p>
     <p>
       A live preview shows the formatted document beside the editor or in place of it,
@@ -37,23 +38,23 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.1/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The spotlight on one paragraph, dark theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.1/packaging/screenshots/editor-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/editor-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>The editor beside its live preview</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.1/packaging/screenshots/split-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/split-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.1/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.3.1/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -69,6 +70,12 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.4.0" date="2026-10-12">
+      <description>
+        <p>An optional animated background under Appearance: Waves, Swell or Drift, a slow pattern a few percent away from the page colour that comes to a stop while you type. Off by default.</p>
+        <p>A more legible icon, a larger menu button that is easier to find, and every launch now starts in the editor view.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-12">
       <description>
         <p>Easier to read on standard-density monitors: the menu and dialogs use Lato Regular instead of Lato Light, and secondary text and the status bar have more contrast and a slightly larger size.</p>

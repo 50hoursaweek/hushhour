@@ -71,12 +71,21 @@ The Rust code is 7.4k lines. By module:
 | `frost.rs` | replace | Wayland-only. |
 
 **Shared crate (since v0.2.1):** the pure modules live in `core/` as the `hushhour-core` crate
-(`markdown` scanner, `preview` block tree for a rendered preview (since v0.3.0), `stats`, `history` with its own `Position`, `music` generators and
+(`markdown` scanner, `preview` block tree for a rendered preview (since v0.3.0), `backdrop` patterns and motion for the animated background (since v0.4.0), `stats`, `history` with its own `Position`, `music` generators and
 `FileSource`, `dsp` with `RATE`, `rng`). Depend on it by git tag (`git = "https://github.com/50hoursaweek/hushhour", tag = "v0.2.1"`, package `hushhour-core`)
 or as a submodule; do not vendor copies any more. Fixes land there for both apps. The audio
 mixer (`src/sound.rs`) stays in the Linux app for now because it is written around the ALSA
 device loop; ask Ink if you want the device-independent part split out too. The rules every
 port must keep are in `docs/document-safety.md`.
+
+**Animated background (since v0.4.0):** Appearance → Background, Off (default), Waves, Swell
+or Drift. `hushhour_core::backdrop` defines it: `intensity()` is the per-pixel reference,
+`WGSL` the same maths as a fragment shader (translate it to Metal and test the port against
+`intensity()`), `STRENGTH` (0.05) the mix towards the text colour, done in sRGB, and `Motion`
+the clock that eases to a stop while the user types and resumes after a pause. Tick it at
+`FRAME_INTERVAL_MS` (15 fps), at `RESTING_INTERVAL_MS` while `is_resting()`, and not at all
+while the app is in the background; honour Reduce Motion by leaving the pattern still. The
+Linux app hides it while frosted glass is on.
 
 Recommended architecture: a **native SwiftUI/UIKit app** with the text view on `UITextView`
 (TextKit 2) and a **Rust core** (`highlight`, `stats`, `history`, `music`, `dsp`, the mixer) built
