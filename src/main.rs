@@ -50,6 +50,8 @@ const UI_FONT: Font = Font {
     style: iced::font::Style::Normal,
 };
 const DRAG_STRIP: f32 = 28.0;
+/// Status bar text fades this far towards the page colour: 4.5:1 or better in every theme.
+const STATUS_FADE: f32 = 0.3;
 // Text column layout. The measure is set in characters of the window's base size
 // (not the zoomed size), so zooming reflows text inside a column whose margins
 // stay put; effective width = min(window width - 2 * padding, MEASURE_CH ch), centred.
@@ -1627,7 +1629,8 @@ impl HushHour {
                     // The page container paints the (possibly translucent) background.
                     background: Background::Color(Color::TRANSPARENT),
                     border: Border::default(),
-                    placeholder: mix(p.text, p.background, 0.6),
+                    // Reads at 4.5:1 even over the strongest background pattern.
+                    placeholder: mix(p.text, p.background, backdrop::MAX_SECONDARY_FADE),
                     value: p.text,
                     selection: Color { a: 0.35, ..p.primary },
                 }
@@ -1669,6 +1672,24 @@ impl HushHour {
                 .height(Length::Fill)
                 .into()
             }
+        };
+
+        // The background pattern sits behind the page only: the top strip and the status
+        // bar keep the plain page colour, so their small text keeps its contrast.
+        let page: Element<'_, Message> = match self.prefs.backdrop.pattern() {
+            Some(pattern) if self.backdrop_shown() => {
+                let palette = self.prefs.theme.theme().palette();
+                let backdrop = iced::widget::shader(backdrop::Program {
+                    pattern,
+                    background: palette.background,
+                    text: palette.text,
+                    time: self.motion.clock,
+                })
+                .width(Length::Fill)
+                .height(Length::Fill);
+                stack![backdrop, page].width(Length::Fill).height(Length::Fill).into()
+            }
+            _ => page,
         };
 
         // Without window decorations this strip is the handle for moving the
@@ -1741,7 +1762,7 @@ impl HushHour {
         let muted = |s: String| {
             text(s).size(13.0).style(|theme: &Theme| {
                 let p = theme.palette();
-                text::Style { color: Some(mix(p.text, p.background, 0.35)) }
+                text::Style { color: Some(mix(p.text, p.background, STATUS_FADE)) }
             })
         };
         // Status bar items that act as flat buttons: muted text, highlighted on hover.
@@ -1755,7 +1776,7 @@ impl HushHour {
                     let color = if hovered || active {
                         p.text
                     } else {
-                        mix(p.text, p.background, 0.35)
+                        mix(p.text, p.background, STATUS_FADE)
                     };
                     button::Style {
                         background: hovered.then(|| iced::Background::Color(mix(p.text, p.background, 0.9))),
@@ -1827,25 +1848,7 @@ impl HushHour {
             .width(fill)
             .height(fill)
         };
-        let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
-        let mut layout = stack![].width(Length::Fill).height(Length::Fill);
-        if let Some(pattern) = self.prefs.backdrop.pattern()
-            && self.backdrop_shown()
-        {
-            let palette = self.prefs.theme.theme().palette();
-            layout = layout.push(
-                iced::widget::shader(backdrop::Program {
-                    pattern,
-                    background: palette.background,
-                    text: palette.text,
-                    time: self.motion.clock,
-                    radius,
-                })
-                .width(Length::Fill)
-                .height(Length::Fill),
-            );
-        }
-        let mut layout = layout.push(layout_column).push(handles);
+        let mut layout = stack![layout_column, handles].width(Length::Fill).height(Length::Fill);
         if self.menu_open {
             layout = layout.push(self.menu());
         }
@@ -1855,6 +1858,7 @@ impl HushHour {
 
         // The window itself is transparent; this container paints the rounded page,
         // translucent when the frosted glass is on.
+        let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
         let page_alpha = if self.prefs.frost { 1.0 - self.prefs.frost_transparency } else { 1.0 };
         container(layout)
             .width(Length::Fill)
@@ -2616,6 +2620,29 @@ mod tests {
         assert!(a.motion.clock - c1 > 0.04, "moving again after a pause");
         let _ = a.update(Message::SetFrost(true));
         assert!(!a.backdrop_shown(), "the frosted glass replaces it");
+    }
+
+    /// Small secondary text reads at 4.5:1 in every theme: the status bar over the plain
+    /// page (the pattern stays out of it), the placeholder over the strongest pattern peak.
+    #[test]
+    fn secondary_text_keeps_its_contrast() {
+        fn luminance(c: Color) -> f32 {
+            let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+            0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+        }
+        fn contrast(a: Color, b: Color) -> f32 {
+            let (la, lb) = (luminance(a), luminance(b));
+            (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+        }
+        let drift_peak = 3.0 * hushhour_core::backdrop::STRENGTH;
+        for theme in ThemeKind::ALL {
+            let p = theme.theme().palette();
+            let status = contrast(mix(p.text, p.background, STATUS_FADE), p.background);
+            assert!(status >= 4.5, "{theme}: status bar {status:.2}");
+            let ground = mix(p.background, p.text, drift_peak);
+            let placeholder = contrast(mix(p.text, p.background, backdrop::MAX_SECONDARY_FADE), ground);
+            assert!(placeholder >= 4.5, "{theme}: placeholder {placeholder:.2}");
+        }
     }
 
     /// Preview links open only web and mail addresses.

@@ -86,7 +86,9 @@ behind is blurred as well.
 Background (Appearance dialog, off by default) puts a slow, faint pattern behind the page:
 Waves, Swell or Drift, the text colour mixed a few percent into the page colour. It eases to
 a stop while you type, pauses while the window is inactive, and rests while frosted glass is
-on. It is drawn by a GPU shader; with the software renderer the page stays plain. Every
+on. It covers the page only, not the top strip or the status bar. It is drawn by a GPU shader
+into a cached texture, redrawn only when it moves; with the software renderer the page stays
+plain. Every
 launch starts in the editor view; split and preview last for the session.
 
 The text column is at most 66 characters wide and centred; zooming reflows the text and

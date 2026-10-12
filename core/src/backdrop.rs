@@ -11,6 +11,14 @@
 //! types and resumes after a pause. Platforms tick it at [`FRAME_INTERVAL_MS`], or at
 //! [`RESTING_INTERVAL_MS`] while it is at rest, and stop ticking while the window is
 //! inactive. The pattern is off by default.
+//!
+//! Draw the pattern only when [`Motion::clock`] (or the size or colours) changed since the
+//! last time; at rest the clock is exactly constant, so a frame drawn for an edit reuses the
+//! last pattern (a cached texture, say) instead of running the shader again.
+//!
+//! Contrast: at the peak (Drift, 15% towards the text colour) body text stays above 7:1,
+//! but faded secondary text does not. Keep the pattern out of bars that hold small text,
+//! and fade secondary text over the page by at most [`MAX_SECONDARY_FADE`].
 
 /// The patterns; `Off` is the platform's choice, not a pattern.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,8 +53,13 @@ impl Pattern {
 pub const STRENGTH: f32 = 0.05;
 /// Frame interval while moving: slow motion looks smooth at 15 frames a second.
 pub const FRAME_INTERVAL_MS: u64 = 66;
-/// Tick interval once typing has brought the pattern to rest: enough to see the pause.
-pub const RESTING_INTERVAL_MS: u64 = 250;
+/// Tick interval once typing has brought the pattern to rest: enough to notice the pause
+/// (it then eases back in over a few seconds), and nothing to draw in between.
+pub const RESTING_INTERVAL_MS: u64 = 1000;
+/// How far secondary text over the pattern (a placeholder, say) may fade from the text
+/// colour towards the page colour and still read at 4.5:1 over the Drift peak, in the
+/// light, sepia and dark palettes.
+pub const MAX_SECONDARY_FADE: f32 = 0.21;
 /// Typing counts as recent for this long after the last edit.
 pub const TYPING_WINDOW_SECS: f32 = 1.4;
 
@@ -75,6 +88,10 @@ impl Motion {
         let typing = since_typed.is_some_and(|s| s < TYPING_WINDOW_SECS);
         let (target, rate) = if typing { (1.0, 3.0) } else { (0.0, 0.8) };
         self.calm += (target - self.calm) * (dt * rate).min(1.0);
+        // At rest the clock stands exactly still, so nothing needs drawing.
+        if self.calm > 0.99 {
+            self.calm = 1.0;
+        }
         self.clock += dt * (1.0 - self.calm);
     }
 
@@ -312,7 +329,7 @@ mod tests {
         assert!(m.is_resting());
         let c = m.clock;
         m.advance(0.066, Some(1.2));
-        assert!(m.clock - c < 0.01);
+        assert_eq!(m.clock, c, "exactly still at rest");
         for _ in 0..70 {
             m.advance(0.066, Some(5.0));
         }

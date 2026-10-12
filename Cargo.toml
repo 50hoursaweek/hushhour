@@ -1,6 +1,6 @@
 [package]
 name = "hushhour"
-version = "0.4.1"
+version = "0.4.2"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
 repository = "https://github.com/50hoursaweek/hushhour"

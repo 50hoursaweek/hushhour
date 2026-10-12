@@ -83,9 +83,14 @@ or Drift. `hushhour_core::backdrop` defines it: `intensity()` is the per-pixel r
 `WGSL` the same maths as a fragment shader (translate it to Metal and test the port against
 `intensity()`), `STRENGTH` (0.05) the mix towards the text colour, done in sRGB, and `Motion`
 the clock that eases to a stop while the user types and resumes after a pause. Tick it at
-`FRAME_INTERVAL_MS` (15 fps), at `RESTING_INTERVAL_MS` while `is_resting()`, and not at all
-while the app is in the background; honour Reduce Motion by leaving the pattern still. The
-Linux app hides it while frosted glass is on.
+`FRAME_INTERVAL_MS` (15 fps), at `RESTING_INTERVAL_MS` (1 s, since v0.4.2) while
+`is_resting()`, and not at all while the app is in the background; honour Reduce Motion by
+leaving the pattern still. At rest the clock is exactly constant (since v0.4.2): draw the
+pattern only when the clock, size or colours change and reuse the last frame otherwise (the
+Linux app keeps it in a texture). Contrast: keep the pattern out of bars with small text
+(Linux draws it behind the page only, not the top strip or status bar) and fade secondary
+text over the page by at most `MAX_SECONDARY_FADE` (0.21: 4.5:1 over the Drift peak). The
+Linux app hides the pattern while frosted glass is on.
 
 Recommended architecture: a **native SwiftUI/UIKit app** with the text view on `UITextView`
 (TextKit 2) and a **Rust core** (`highlight`, `stats`, `history`, `music`, `dsp`, the mixer) built

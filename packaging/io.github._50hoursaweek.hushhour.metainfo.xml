@@ -38,23 +38,23 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.2/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The spotlight on one paragraph, dark theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/editor-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.2/packaging/screenshots/editor-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>The editor beside its live preview</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/split-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.2/packaging/screenshots/split-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.2/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.2/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -70,6 +70,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.4.2" date="2026-10-12">
+      <description>
+        <p>Better contrast and less work for the graphics chip with the animated background: the pattern no longer runs under the top strip and the status bar, the status bar and the "Start writing" hint are darker, and the pattern is redrawn only when it moves.</p>
+      </description>
+    </release>
     <release version="0.4.1" date="2026-10-12">
       <description>
         <p>A new tagline: "A quiet place to write", in the welcome dialog and the app's summary.</p>
