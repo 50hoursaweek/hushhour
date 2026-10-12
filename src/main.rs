@@ -581,11 +581,10 @@ impl HushHour {
                 self.refresh_preview();
                 // Scroll the preview to the caret on arrival, wherever it was.
                 self.preview_synced_line = None;
-                let save = self.save_prefs();
                 let sync = self.sync_preview();
                 // Back to a view with the editor: give it the keyboard again.
                 let focus = if view.shows_editor() { iced::widget::operation::focus_next() } else { Task::none() };
-                Task::batch([save, sync, focus])
+                Task::batch([sync, focus])
             }
             Message::OpenLink(url) => {
                 if preview::openable(&url) {

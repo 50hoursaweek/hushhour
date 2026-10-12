@@ -157,6 +157,7 @@ pub struct Preferences {
     pub line_height: f32,
     pub focus: FocusMode,
     pub typewriter: bool,
+    /// Not saved: every launch starts in the editor.
     pub view: ViewMode,
     pub typing_sound: bool,
     pub sound_set: SoundSet,
@@ -239,7 +240,6 @@ impl Preferences {
                         .unwrap_or(prefs.focus)
                 }
                 "typewriter" => prefs.typewriter = parse_bool(value).unwrap_or(prefs.typewriter),
-                "view" => prefs.view = pick(&ViewMode::ALL, value).unwrap_or(prefs.view),
                 "typing_sound" => prefs.typing_sound = parse_bool(value).unwrap_or(prefs.typing_sound),
                 "sound_set" => prefs.sound_set = pick(&SoundSet::ALL, value).unwrap_or(prefs.sound_set),
                 "sound_volume" => prefs.sound_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.sound_volume),
@@ -261,14 +261,13 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\nview = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
             self.line_height,
             self.focus.label(),
             self.typewriter,
-            self.view.label(),
             self.typing_sound,
             self.sound_set.label(),
             self.sound_volume,
@@ -333,7 +332,7 @@ mod tests {
             line_height: 1.8,
             focus: FocusMode::Sentence,
             typewriter: true,
-            view: ViewMode::Split,
+            view: ViewMode::Editor,
             typing_sound: false,
             sound_set: SoundSet::Keyboard,
             sound_volume: 0.25,
@@ -345,6 +344,13 @@ mod tests {
             music_volume: 0.35,
         };
         assert_eq!(Preferences::parse(&prefs.serialize()), prefs);
+    }
+
+    #[test]
+    fn view_is_not_remembered() {
+        let prefs = Preferences { view: ViewMode::Preview, ..Preferences::default() };
+        assert!(!prefs.serialize().contains("view"));
+        assert_eq!(Preferences::parse("view = Split\n").view, ViewMode::Editor);
     }
 
     #[test]
