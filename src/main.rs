@@ -1709,8 +1709,33 @@ impl HushHour {
             .on_press(Message::DragWindow)
             .on_double_click(Message::ToggleMaximize)
             .interaction(iced::mouse::Interaction::Grab);
-        // The menu button is always visible, muted until hovered, so the menu can be found.
-        let menu_button = container(window_button("☰", Message::ToggleMenu)).padding(Padding::new(0.0).left(8.0));
+        // The menu button is always visible and drawn as three bars, darker than the window
+        // controls, so the menu is easy to find (the ☰ glyph renders too small to see).
+        let bar = || {
+            container(space().width(16).height(2)).style(|theme: &Theme| {
+                let p = theme.palette();
+                container::Style {
+                    background: Some(Background::Color(mix(p.text, p.background, 0.25))),
+                    border: Border::default().rounded(1.0),
+                    ..container::Style::default()
+                }
+            })
+        };
+        let menu_button = button(center(column![bar(), bar(), bar()].spacing(4)))
+            .width(DRAG_STRIP + 8.0)
+            .height(DRAG_STRIP)
+            .padding(0)
+            .on_press(Message::ToggleMenu)
+            .style(|theme: &Theme, status| {
+                let p = theme.palette();
+                let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style {
+                    background: hovered.then(|| iced::Background::Color(mix(p.text, p.background, 0.85))),
+                    border: Border::default().rounded(4.0),
+                    ..button::Style::default()
+                }
+            });
+        let menu_button = container(menu_button).padding(Padding::new(0.0).left(8.0));
         let drag_strip = mouse_area(row![menu_button, drag_handle, controls].height(DRAG_STRIP))
             .on_enter(Message::TopStripHovered(true))
             .on_exit(Message::TopStripHovered(false));
