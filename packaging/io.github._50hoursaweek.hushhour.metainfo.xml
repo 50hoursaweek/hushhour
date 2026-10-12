@@ -38,23 +38,23 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The spotlight on one paragraph, dark theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/editor-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/editor-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>The editor beside its live preview</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/split-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/split-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.0/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.4.1/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -70,6 +70,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.4.1" date="2026-10-12">
+      <description>
+        <p>A new tagline: "A quiet place to write", in the welcome dialog and the app's summary.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-10-12">
       <description>
         <p>An optional animated background under Appearance: Waves, Swell or Drift, a slow pattern a few percent away from the page colour that comes to a stop while you type. Off by default.</p>

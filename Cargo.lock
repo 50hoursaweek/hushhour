@@ -1439,7 +1439,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "hushhour"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cosmic-text",
  "dirs",
@@ -1457,7 +1457,7 @@ dependencies = [
 
 [[package]]
 name = "hushhour-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "dirs",
  "pulldown-cmark",
