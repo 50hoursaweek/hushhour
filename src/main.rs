@@ -1,6 +1,7 @@
 //! HushHour: a quiet Markdown editor for Linux, built with iced.
 
 mod atomic;
+mod backdrop;
 mod editor;
 mod frost;
 mod highlight;
@@ -12,6 +13,7 @@ mod sound;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use iced::advanced::text::editor::{Cursor, Edit, LineEnding, Motion};
 use iced::advanced::text::{LineHeight, Wrapping};
@@ -31,7 +33,7 @@ use highlight::{FocusMode, MarkdownHighlighter, Settings as HlSettings, sentence
 use iced::advanced::text::editor::Position;
 use palette::{ThemeKind, mix};
 use music::{Music, MusicDirs};
-use prefs::{FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet, ViewMode};
+use prefs::{Backdrop, FontKind, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet, ViewMode};
 use stats::Stats;
 
 const APP_NAME: &str = "HushHour";
@@ -160,6 +162,15 @@ struct HushHour {
     highlight: HlSettings,
     stats: Stats,
     notice: Option<String>,
+    /// Seconds of background animation; it stops advancing while the user types.
+    backdrop_clock: f32,
+    /// 0 = moving freely, 1 = brought to a stop by typing.
+    backdrop_calm: f32,
+    backdrop_tick: Option<Instant>,
+    last_typed: Option<Instant>,
+    focused: bool,
+    /// Debug: a `--screenshot` capture is pending.
+    capturing: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +243,10 @@ enum Message {
     SetFrost(bool),
     SetFrostTransparency(f32),
     SetFrostThickness(f32),
+    SetBackdrop(Backdrop),
+    /// Advances the background animation (only while a pattern is shown and the window has focus).
+    BackdropTick(Instant),
+    WindowFocused(bool),
     Quit,
 }
 
@@ -298,6 +313,12 @@ impl HushHour {
             highlight: HlSettings::default(),
             stats: Stats::default(),
             notice: None,
+            backdrop_clock: 7.0,
+            backdrop_calm: 0.0,
+            backdrop_tick: None,
+            last_typed: None,
+            focused: true,
+            capturing: false,
         };
         app.refresh_music_options();
         // Music is never started automatically; only its volume is remembered.
@@ -414,6 +435,7 @@ impl HushHour {
                     self.sound.play(key, self.prefs.sound_set, self.prefs.sound_volume);
                 }
                 if is_edit {
+                    self.last_typed = Some(Instant::now());
                     let new_text = self.content.text();
                     let after = self.content.cursor().position;
                     if self.history.record(&self.text, &new_text, core_pos(before), core_pos(after)) {
@@ -747,6 +769,21 @@ impl HushHour {
                 self.apply_frost();
                 Task::none()
             }
+            Message::SetBackdrop(backdrop) => {
+                self.prefs.backdrop = backdrop;
+                self.backdrop_tick = None;
+                self.save_prefs()
+            }
+            Message::BackdropTick(now) => {
+                self.advance_backdrop(now);
+                Task::none()
+            }
+            Message::WindowFocused(focused) => {
+                self.focused = focused;
+                // Time spent unfocused is not animated: the next tick starts afresh.
+                self.backdrop_tick = None;
+                Task::none()
+            }
             Message::SetFrostThickness(v) => {
                 self.prefs.frost_thickness = ((v * 20.0).round() / 20.0).clamp(0.0, 1.0);
                 self.apply_frost();
@@ -789,6 +826,9 @@ impl HushHour {
                 Task::none()
             }
             Message::Screenshot(path) => {
+                // A still background: captures are repeatable, and iced's capture drops
+                // the editor's text while a timer keeps the view updating.
+                self.capturing = true;
                 // Let the first frames, the fonts and the opened file settle, then capture.
                 after(std::time::Duration::from_millis(1500)).then(move |_| {
                     let path = path.clone();
@@ -968,6 +1008,24 @@ impl HushHour {
     fn attach_frost(&mut self) -> Task<Message> {
         self.frost_attach_started = true;
         window::latest().and_then(|id| window::run(id, |w| frost::Frost::attach(w))).map(Message::FrostAttached)
+    }
+
+    /// The background pattern is drawn unless it is off or the frosted glass is on (the
+    /// desktop showing through the page would compete with it).
+    fn backdrop_shown(&self) -> bool {
+        self.prefs.backdrop != Backdrop::Off && !self.prefs.frost
+    }
+
+    /// Move the background on by the time since the last tick, slowed by recent typing:
+    /// it eases to a stop within about a second of typing and back over a few seconds after.
+    fn advance_backdrop(&mut self, now: Instant) {
+        let Some(last) = self.backdrop_tick.replace(now) else { return };
+        let dt = now.saturating_duration_since(last).as_secs_f32().min(0.25);
+        let typing = self.last_typed.is_some_and(|t| now.saturating_duration_since(t) < Duration::from_millis(1400));
+        let rate = if typing { 3.0 } else { 0.8 };
+        let target = if typing { 1.0 } else { 0.0 };
+        self.backdrop_calm += (target - self.backdrop_calm) * (dt * rate).min(1.0);
+        self.backdrop_clock += dt * (1.0 - self.backdrop_calm);
     }
 
     /// Push the current frost settings to the compositor, if attached.
@@ -1361,6 +1419,12 @@ impl HushHour {
                             format!("{line_height:.2}"),
                         ),
                     ),
+                    setting("Background", pick(&Backdrop::ALL, self.prefs.backdrop, Message::SetBackdrop)),
+                    muted(if self.prefs.frost && self.prefs.backdrop != Backdrop::Off {
+                        "The background pattern rests while the frosted glass is on.".to_owned()
+                    } else {
+                        "A slow, faint pattern behind the page. It comes to a stop while you type.".to_owned()
+                    }),
                     divider(),
                     heading("FROSTED GLASS"),
                     setting("Frosted glass", toggler(self.prefs.frost).on_toggle(Message::SetFrost).size(18.0)),
@@ -1511,11 +1575,21 @@ impl HushHour {
         });
         let resizes = window::events().filter_map(|(_, event)| match event {
             window::Event::Resized(size) => Some(Message::WindowResized(size)),
+            window::Event::Focused => Some(Message::WindowFocused(true)),
+            window::Event::Unfocused => Some(Message::WindowFocused(false)),
             _ => None,
         });
         // The window's close button goes through the unsaved-changes guard too.
         let closes = window::close_requests().map(|_| Message::Quit);
-        Subscription::batch([keys, resizes, closes])
+        // The background moves slowly enough to look smooth at 15 frames a second. Once
+        // typing has brought it to a stop, a slow tick is enough to notice the pause.
+        let backdrop = if self.backdrop_shown() && self.focused && !self.capturing {
+            let interval = if self.backdrop_calm > 0.99 { 250 } else { 66 };
+            iced::time::every(Duration::from_millis(interval)).map(Message::BackdropTick)
+        } else {
+            Subscription::none()
+        };
+        Subscription::batch([keys, resizes, closes, backdrop])
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1697,7 +1771,7 @@ impl HushHour {
         .padding(Padding::new(4.0).left(16.0).right(12.0));
 
         let status = mouse_area(status).on_press(Message::DragWindow);
-        let layout = column![drag_strip, page, status].height(Length::Fill);
+        let layout_column = column![drag_strip, page, status].height(Length::Fill);
 
         // Invisible resize handles along the edges and corners of the window.
         let handles = {
@@ -1730,7 +1804,23 @@ impl HushHour {
             .width(fill)
             .height(fill)
         };
-        let mut layout = stack![layout, handles].width(Length::Fill).height(Length::Fill);
+        let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
+        let mut layout = stack![].width(Length::Fill).height(Length::Fill);
+        if self.backdrop_shown() {
+            let palette = self.prefs.theme.theme().palette();
+            layout = layout.push(
+                iced::widget::shader(backdrop::Program {
+                    pattern: self.prefs.backdrop,
+                    background: palette.background,
+                    text: palette.text,
+                    time: self.backdrop_clock,
+                    radius,
+                })
+                .width(Length::Fill)
+                .height(Length::Fill),
+            );
+        }
+        let mut layout = layout.push(layout_column).push(handles);
         if self.menu_open {
             layout = layout.push(self.menu());
         }
@@ -1740,7 +1830,6 @@ impl HushHour {
 
         // The window itself is transparent; this container paints the rounded page,
         // translucent when the frosted glass is on.
-        let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
         let page_alpha = if self.prefs.frost { 1.0 - self.prefs.frost_transparency } else { 1.0 };
         container(layout)
             .width(Length::Fill)
@@ -2469,6 +2558,39 @@ mod tests {
         type_text(&mut a, "x");
         let _ = a.update(Message::KeyPressed(Key::Character("s".into()), Modifiers::CTRL));
         assert!(a.saving, "Ctrl+S starts a save (Save As for an untitled document)");
+    }
+
+    /// Background: it moves with the ticks, comes to a stop while typing, starts again
+    /// after a pause, and is not drawn while the frosted glass is on.
+    #[test]
+    fn background_moves_and_rests_while_typing() {
+        let mut a = app();
+        assert!(!a.backdrop_shown(), "off by default");
+        let _ = a.update(Message::SetBackdrop(Backdrop::Waves));
+        assert!(a.backdrop_shown());
+        let start = Instant::now();
+        let tick = |a: &mut HushHour, ms: u64| a.advance_backdrop(start + Duration::from_millis(ms));
+        tick(&mut a, 0);
+        let c0 = a.backdrop_clock;
+        tick(&mut a, 200);
+        assert!(a.backdrop_clock - c0 > 0.15, "moves while nobody types");
+        // Typing brings it to a stop within about a second.
+        a.last_typed = Some(start + Duration::from_millis(200));
+        for ms in (266..=1400).step_by(66) {
+            tick(&mut a, ms);
+        }
+        let stopped = a.backdrop_clock;
+        tick(&mut a, 1466);
+        assert!(a.backdrop_clock - stopped < 0.01, "at rest while typing");
+        // A few seconds after the last key it is moving again.
+        for ms in (1532..=6000).step_by(66) {
+            tick(&mut a, ms);
+        }
+        let c1 = a.backdrop_clock;
+        tick(&mut a, 6066);
+        assert!(a.backdrop_clock - c1 > 0.04, "moving again after a pause");
+        let _ = a.update(Message::SetFrost(true));
+        assert!(!a.backdrop_shown(), "the frosted glass replaces it");
     }
 
     /// Preview links open only web and mail addresses.

@@ -105,6 +105,35 @@ impl fmt::Display for SoundSet {
     }
 }
 
+/// A slow, faint pattern behind the page: the text colour mixed into the page colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Backdrop {
+    #[default]
+    Off,
+    Waves,
+    Swell,
+    Drift,
+}
+
+impl Backdrop {
+    pub const ALL: [Self; 4] = [Self::Off, Self::Waves, Self::Swell, Self::Drift];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Waves => "Waves",
+            Self::Swell => "Swell",
+            Self::Drift => "Drift",
+        }
+    }
+}
+
+impl fmt::Display for Backdrop {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 /// What the window shows: the editor, the editor beside a live preview, or the preview alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
@@ -166,6 +195,7 @@ pub struct Preferences {
     /// Show the welcome dialog at launch until the user opts out.
     pub show_welcome: bool,
     pub frost: bool,
+    pub backdrop: Backdrop,
     /// 0..=0.9: how see-through the page is when frosted.
     pub frost_transparency: f32,
     /// 0..=1: how heavily the backdrop is frosted, where the compositor can.
@@ -191,6 +221,7 @@ impl Default for Preferences {
             sound_volume: 0.6,
             show_welcome: true,
             frost: false,
+            backdrop: Backdrop::Off,
             frost_transparency: 0.35,
             frost_thickness: 0.6,
             music: Music::Off,
@@ -246,6 +277,7 @@ impl Preferences {
                 "music_volume" => prefs.music_volume = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.music_volume),
                 "show_welcome" => prefs.show_welcome = parse_bool(value).unwrap_or(prefs.show_welcome),
                 "frost" => prefs.frost = parse_bool(value).unwrap_or(prefs.frost),
+                "background" => prefs.backdrop = pick(&Backdrop::ALL, value).unwrap_or(prefs.backdrop),
                 "frost_transparency" => prefs.frost_transparency = parse_clamped(value, 0.0, MAX_TRANSPARENCY).unwrap_or(prefs.frost_transparency),
                 "frost_thickness" => prefs.frost_thickness = parse_clamped(value, 0.0, 1.0).unwrap_or(prefs.frost_thickness),
                 _ => {}
@@ -261,7 +293,7 @@ impl Preferences {
 
     fn serialize(&self) -> String {
         format!(
-            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
+            "theme = {}\nfont = {}\nsize = {}\nline_height = {:.2}\nfocus = {}\ntypewriter = {}\ntyping_sound = {}\nsound_set = {}\nsound_volume = {:.2}\nmusic_volume = {:.2}\nshow_welcome = {}\nfrost = {}\nbackground = {}\nfrost_transparency = {:.2}\nfrost_thickness = {:.2}\n",
             self.theme.label(),
             self.font.label(),
             self.size,
@@ -274,6 +306,7 @@ impl Preferences {
             self.music_volume,
             self.show_welcome,
             self.frost,
+            self.backdrop.label(),
             self.frost_transparency,
             self.frost_thickness,
         )
@@ -338,6 +371,7 @@ mod tests {
             sound_volume: 0.25,
             show_welcome: false,
             frost: true,
+            backdrop: Backdrop::Swell,
             frost_transparency: 0.5,
             frost_thickness: 0.25,
             music: Music::Off,
