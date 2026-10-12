@@ -49,7 +49,8 @@ OUT=dist/HushHour-x86_64.AppImage
 # newest release's .zsync, which CI makes after giving the AppImage its versioned name.
 UPDATE_INFO="gh-releases-zsync|50hoursaweek|hushhour|latest|HushHour-*-x86_64.AppImage.zsync"
 ARCH=x86_64 "${APPIMAGETOOL:-appimagetool}" --no-appstream -u "$UPDATE_INFO" "$APPDIR" "$OUT.tmp"
-# A .zsync made here would name the temporary file; CI writes the real one.
-rm -f "$OUT.tmp.zsync"
+# A .zsync made here (next to the output or in the working directory) would name the
+# temporary file; CI writes the real one.
+rm -f "$OUT.tmp.zsync" "$(basename "$OUT").tmp.zsync"
 mv -f "$OUT.tmp" "$OUT"
 ls -la "$OUT"
