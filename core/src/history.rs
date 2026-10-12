@@ -138,12 +138,12 @@ impl History {
         self.last_push = None;
     }
 
-    #[cfg(test)]
+    /// Whether there is a step to undo; for menu and shortcut state.
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
-    #[cfg(test)]
+    /// Whether there is a step to redo.
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }

@@ -61,6 +61,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.2.3" date="2026-10-12">
+      <description>
+        <p>Shared crate: undo and redo availability is exposed for the ports. No change in behaviour.</p>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-10-11">
       <description>
         <p>New screenshots; no change in behaviour.</p>
