@@ -235,7 +235,8 @@ pub struct Preferences {
     pub frost: bool,
     pub backdrop: Backdrop,
     pub update_check: UpdateCheck,
-    /// When the last update check succeeded, in seconds since the Unix epoch (0 = never).
+    /// When the last update check was attempted, in seconds since the Unix epoch (0 = never);
+    /// checks run at most once a day from this, whether they succeeded or not.
     pub update_checked: u64,
     /// The newest release that check found ("0.5.1"), so its notice survives a restart.
     pub update_latest: String,

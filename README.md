@@ -93,7 +93,9 @@ launch starts in the editor view; split and preview last for the session.
 
 Updates: the welcome dialog (or, for anyone past it, a one-off dialog) asks whether HushHour
 may check GitHub for a new version once a day; nothing is checked until the answer is yes, and
-the switch is in About afterwards. The check fetches
+the switch is in About afterwards. The first check runs right after a yes (on later launches,
+about ten seconds after start); after that there is at most one request every 24 hours,
+counting failed attempts. The check fetches
 `https://github.com/50hoursaweek/hushhour/releases/latest` without following the redirect and
 reads the release it points to; nothing about you or your documents is sent. A newer release
 shows as "HushHour x.y.z is available" in the status bar, which opens the release page. The

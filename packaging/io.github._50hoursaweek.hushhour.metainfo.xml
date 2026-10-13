@@ -38,23 +38,23 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.0/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.1/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The spotlight on one paragraph, dark theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.0/packaging/screenshots/editor-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.1/packaging/screenshots/editor-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>The editor beside its live preview</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.0/packaging/screenshots/split-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.1/packaging/screenshots/split-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.0/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.1/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.0/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.1/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -70,6 +70,11 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.5.1" date="2026-10-13">
+      <description>
+        <p>The update check now makes at most one request a day even when a check fails, instead of retrying every hour.</p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-10-12">
       <description>
         <p>Optional update checks: HushHour asks once, in the welcome dialog or a short dialog, whether it may check GitHub for a new version once a day. A newer release then shows in the status bar. Nothing is checked without a yes, and the switch is in About.</p>

@@ -837,7 +837,6 @@ impl HushHour {
                 }
                 match result {
                     Ok(release) => {
-                        self.prefs.update_checked = update::now_secs();
                         self.prefs.update_latest = release.label();
                         self.update_status = Some(if release.version > update::current() {
                             format!("Version {} is available.", release.label())
@@ -848,7 +847,7 @@ impl HushHour {
                         self.save_prefs()
                     }
                     Err(e) => {
-                        // Offline, say: say nothing in the window, try again at the next tick.
+                        // Offline, say: nothing in the window; the next try is a day later.
                         eprintln!("hushhour: update check failed: {e}");
                         self.update_status = Some("The last check could not reach GitHub.".to_owned());
                         Task::none()
@@ -1126,7 +1125,7 @@ impl HushHour {
         let status = match (&self.update_status, on) {
             (_, false) => "Not checking for updates.".to_owned(),
             (Some(status), true) => status.clone(),
-            (None, true) if self.prefs.update_checked == 0 => "Not checked yet.".to_owned(),
+            (None, true) if self.prefs.update_latest.is_empty() => "Not checked yet.".to_owned(),
             (None, true) => match &self.update_available {
                 Some(r) => format!("Version {} is available.", r.label()),
                 None => "You have the latest version.".to_owned(),
@@ -1155,12 +1154,25 @@ impl HushHour {
 
     /// Start an update check if checks are on and the last one is a day old.
     fn check_update_if_due(&mut self) -> Task<Message> {
-        let due = update::now_secs().saturating_sub(self.prefs.update_checked) >= update::INTERVAL_SECS;
-        if !self.update_checks_allowed() || self.update_checking || !due {
+        if !self.update_checks_allowed() {
             return Task::none();
         }
+        match self.start_update_check(update::now_secs()) {
+            Some(check) => Task::batch([self.save_prefs(), check]),
+            None => Task::none(),
+        }
+    }
+
+    /// The check itself, at most once a day: the attempt's time is recorded before it
+    /// runs, so a failed check (offline, say) is not retried until a day has passed.
+    fn start_update_check(&mut self, now: u64) -> Option<Task<Message>> {
+        let due = now.saturating_sub(self.prefs.update_checked) >= update::INTERVAL_SECS;
+        if self.update_checking || !due {
+            return None;
+        }
         self.update_checking = true;
-        Task::perform(update::check(), Message::UpdateChecked)
+        self.prefs.update_checked = now;
+        Some(Task::perform(update::check(), Message::UpdateChecked))
     }
 
     /// The newest release the last check found, if it is newer than this build.
@@ -2891,6 +2903,21 @@ mod tests {
         a.prefs.update_latest = "99.0.0".to_owned();
         let _ = a.update(Message::SetUpdateCheck(UpdateCheck::Off));
         assert_eq!((a.known_update(), a.update_available.clone()), (None, None));
+    }
+
+    /// Updates: one request a day at most, failed or not (the privacy page promises it).
+    #[test]
+    fn update_checks_run_at_most_once_a_day() {
+        let mut a = app();
+        let day = update::INTERVAL_SECS;
+        let t0 = 2_000_000_000;
+        assert!(a.start_update_check(t0).is_some(), "never checked: due");
+        assert_eq!(a.prefs.update_checked, t0, "the attempt is recorded before it runs");
+        let _ = a.update(Message::UpdateChecked(Err("offline".into())));
+        assert!(a.start_update_check(t0 + 3600).is_none(), "a failure is not retried within the day");
+        assert!(a.start_update_check(t0 + day - 1).is_none());
+        assert!(a.start_update_check(t0 + day).is_some(), "due again a day later");
+        assert!(a.start_update_check(t0 + 2 * day).is_none(), "one check at a time");
     }
 
     /// Preview links open only web and mail addresses.
