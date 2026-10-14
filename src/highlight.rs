@@ -149,7 +149,7 @@ pub fn to_format(h: &Highlight, theme: &Theme) -> Format<Font> {
     let base = match h.kind {
         Kind::Marker | Kind::ListMarker => mix(fg, bg, 0.55),
         Kind::Url => mix(fg, bg, 0.45),
-        Kind::Link => p.primary,
+        Kind::Link => crate::palette::link(&p),
         _ => fg,
     };
     let color = if h.dim { mix(base, bg, 0.72) } else { base };

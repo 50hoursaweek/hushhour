@@ -80,6 +80,26 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::from_rgb8(r, g, b)
 }
 
+/// WCAG contrast ratio between two opaque colours (1 to 21).
+pub fn contrast(a: Color, b: Color) -> f32 {
+    fn luminance(c: Color) -> f32 {
+        let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+        0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// The colour for links: the theme's accent, darkened in steps of 5% only as far as it
+/// takes to read at 4.5:1 on the page (light and sepia need it; dark does not).
+pub fn link(p: &iced::theme::Palette) -> Color {
+    let black = Color::BLACK;
+    (0..=20)
+        .map(|step| mix(p.primary, black, step as f32 * 0.05))
+        .find(|c| contrast(*c, p.background) >= 4.5)
+        .unwrap_or(p.text)
+}
+
 /// Blend `fg` towards `bg` by `t` (0 = fg, 1 = bg). Used for dimmed text and markers.
 pub fn mix(fg: Color, bg: Color, t: f32) -> Color {
     Color {

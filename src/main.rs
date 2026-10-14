@@ -2194,7 +2194,8 @@ fn link_button<'a>(label: &'static str, msg: Message) -> Element<'a, Message> {
             let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
                 background: None,
-                text_color: if hovered { p.primary } else { mix(p.primary, p.text, 0.3) },
+                // Underline-free links: the readable link colour, the text colour on hover.
+                text_color: if hovered { p.text } else { palette::link(&p) },
                 border: Border::default(),
                 ..button::Style::default()
             }
@@ -2852,17 +2853,11 @@ mod tests {
     }
 
     /// Small secondary text reads at 4.5:1 in every theme: the status bar over the plain
-    /// page (the pattern stays out of it), the placeholder over the strongest pattern peak.
+    /// page (the pattern stays out of it), the placeholder over the strongest pattern peak,
+    /// and links.
     #[test]
     fn secondary_text_keeps_its_contrast() {
-        fn luminance(c: Color) -> f32 {
-            let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
-            0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
-        }
-        fn contrast(a: Color, b: Color) -> f32 {
-            let (la, lb) = (luminance(a), luminance(b));
-            (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
-        }
+        use palette::contrast;
         let drift_peak = 3.0 * hushhour_core::backdrop::STRENGTH;
         for theme in ThemeKind::ALL {
             let p = theme.theme().palette();
@@ -2871,6 +2866,8 @@ mod tests {
             let ground = mix(p.background, p.text, drift_peak);
             let placeholder = contrast(mix(p.text, p.background, backdrop::MAX_SECONDARY_FADE), ground);
             assert!(placeholder >= 4.5, "{theme}: placeholder {placeholder:.2}");
+            let link = contrast(palette::link(&p), p.background);
+            assert!(link >= 4.5, "{theme}: links {link:.2}");
         }
     }
 

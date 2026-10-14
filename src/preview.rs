@@ -25,12 +25,14 @@ pub struct Look {
     pub text: Color,
     pub background: Color,
     pub accent: Color,
+    /// Links: the accent, darkened where needed to read at 4.5:1 on the page.
+    pub link: Color,
 }
 
 impl Look {
     pub fn new(theme: &Theme, family: &'static str, size: f32, line_height: f32) -> Self {
         let p = theme.palette();
-        Self { family, size, line_height, text: p.text, background: p.background, accent: p.primary }
+        Self { family, size, line_height, text: p.text, background: p.background, accent: p.primary, link: crate::palette::link(&p) }
     }
 
     fn muted(&self, t: f32) -> Color {
@@ -186,7 +188,7 @@ fn paragraph<'a>(inlines: &'a [Inline], look: Look, heading: bool) -> Element<'a
                 let style = Style { strong: style.strong || heading, ..*style };
                 let color = match (link, style.image) {
                     (_, true) => look.muted(0.35),
-                    (Some(_), false) => look.accent,
+                    (Some(_), false) => look.link,
                     (None, false) => look.text,
                 };
                 let mut s = span(text.as_str())
