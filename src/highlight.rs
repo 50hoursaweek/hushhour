@@ -115,7 +115,7 @@ impl Highlighter for MarkdownHighlighter {
         };
 
         if self.settings.focus == FocusMode::Sentence && index == self.settings.cursor_line {
-            let s = self.settings.sentence.clone();
+            let s = within_line(&self.settings.sentence, line);
             spans = split_at(spans, &[s.start, s.end]);
             let family = self.settings.family;
             return spans
@@ -174,6 +174,22 @@ pub fn to_format(h: &Highlight, theme: &Theme) -> Format<Font> {
 }
 
 
+/// The sentence range made safe for this line: inside it, in order, and on character
+/// boundaries. Every edit refreshes the range before the next frame, so it should already
+/// be all three; a stale one (the iPad crash of build 72) must not reach the renderer,
+/// where a cut inside a multibyte character panics.
+fn within_line(range: &Range<usize>, line: &str) -> Range<usize> {
+    let floor = |i: usize| {
+        let mut i = i.min(line.len());
+        while !line.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    };
+    let (a, b) = (floor(range.start), floor(range.end));
+    a.min(b)..a.max(b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +207,23 @@ mod tests {
         assert_eq!((lit.first().map(|r| r.start), lit.last().map(|r| r.end)), (Some(11), Some(23)));
         assert!(lit.windows(2).all(|w| w[0].end == w[1].start));
         assert!(spans.iter().all(|(r, hl)| hl.dim || (r.start >= 11 && r.end <= 23)));
+    }
+
+    /// A stale sentence range (cut inside "’", reversed, past the end) never yields a span
+    /// that splits a character or leaves the line.
+    #[test]
+    fn stale_sentence_range_stays_on_char_boundaries() {
+        let line = "I don’t know."; // "’" is bytes 5..8
+        let reversed = Range { start: 7, end: 4 };
+        for sentence in [6..9, reversed.clone(), 0..99, 7..7] {
+            let settings = Settings { focus: FocusMode::Sentence, cursor_line: 0, sentence, ..Settings::default() };
+            let mut h = MarkdownHighlighter::new(&settings);
+            for (r, _) in h.highlight_line(line) {
+                assert!(r.start <= r.end && r.end <= line.len(), "{r:?}");
+                assert!(line.is_char_boundary(r.start) && line.is_char_boundary(r.end), "{r:?} splits a character");
+            }
+        }
+        assert_eq!(within_line(&reversed, line), 4..5, "floored and ordered");
+        assert_eq!(within_line(&(6..99), line), 5..line.len(), "floored and clamped");
     }
 }
