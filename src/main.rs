@@ -40,7 +40,10 @@ use stats::Stats;
 const APP_NAME: &str = "HushHour";
 /// Incremented by build.rs on every build; see the About section of the menu.
 const BUILD: &str = env!("HUSHHOUR_BUILD");
+/// The dark icon is the window and launcher icon; the About dialog uses the light one in the
+/// light and sepia themes.
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
+const APP_ICON_LIGHT: &[u8] = include_bytes!("../assets/icon-light-256.png");
 const REPOSITORY: &str = "https://github.com/50hoursaweek/hushhour";
 /// The menu and dialogs use Lato Regular (Light was too thin to read at a display scale
 /// of 1); the editor uses Plex Mono, Plex Sans and Literata.
@@ -1696,7 +1699,12 @@ impl HushHour {
             Dialog::About => (
                 "",
                 column![
-                    iced::widget::image(iced::widget::image::Handle::from_bytes(APP_ICON)).width(96.0).height(96.0),
+                    iced::widget::image(iced::widget::image::Handle::from_bytes(match self.prefs.theme {
+                        ThemeKind::Dark => APP_ICON,
+                        ThemeKind::Light | ThemeKind::Sepia => APP_ICON_LIGHT,
+                    }))
+                    .width(96.0)
+                    .height(96.0),
                     text(APP_NAME).size(20.0).font(UI_FONT),
                     muted(format!("Version {} · build {BUILD}", env!("CARGO_PKG_VERSION"))),
                     muted("© 2026 Grunt".to_owned()),
@@ -2410,7 +2418,7 @@ pub fn main() -> iced::Result {
         // Set first: the builder methods below extend these settings. The app id must
         // match the desktop file name so Wayland compositors can find the launcher icon.
         .window(window::Settings {
-            icon: window::icon::from_file_data(include_bytes!("../assets/icon-256.png"), None).ok(),
+            icon: window::icon::from_file_data(APP_ICON, None).ok(),
             platform_specific: window::settings::PlatformSpecific {
                 application_id: "io.github._50hoursaweek.hushhour".to_owned(),
                 ..window::settings::PlatformSpecific::default()

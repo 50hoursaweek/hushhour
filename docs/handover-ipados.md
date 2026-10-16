@@ -106,7 +106,7 @@ apps share one source.
   provenance). Use them unmodified; do not generate instances (OFL Reserved Font Names).
 - Sounds: `assets/sounds/{soft,keyboard}` CC0 by unicaegames, credit in `assets/sounds/README.md`.
 - Music: `assets/music/*.ogg` CC0 by the author (Lyria-generated). Convert to AAC/CAF for iPad.
-- Icon: `assets/hushhour-icon.svg` (plus `icon-256.png`, `icon-512.png`).
+- Icon: `assets/hushhour-icon.svg` (dark, the launcher icon; plus `icon-256.png`, `icon-512.png`) and `assets/hushhour-icon-light.svg` (light, `icon-light-256.png`), the "Unfold" design since 0.5.3.
 - **Never** use the old Envato-licensed recordings or any synthesised keystroke sounds that were
   rejected; they are not in the repository and must not come back.
 - Never commit API keys; the user's OpenRouter key lives outside any repository.
