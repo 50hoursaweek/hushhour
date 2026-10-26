@@ -71,7 +71,7 @@ The Rust code is 7.4k lines. By module:
 | `frost.rs` | replace | Wayland-only. |
 
 **Shared crate (since v0.2.1):** the pure modules live in `core/` as the `hushhour-core` crate
-(`markdown` scanner, `preview` block tree for a rendered preview (since v0.3.0), `backdrop` patterns and motion for the animated background (since v0.4.0), `stats`, `history` with its own `Position`, `music` generators and
+(`markdown` scanner, `preview` block tree for a rendered preview (since v0.3.0), `backdrop` patterns and motion for the animated background (since v0.4.0), `title` for a new document's name from its first line, the same rules as the iPad's AutoTitle (since v0.6.0), `stats`, `history` with its own `Position`, `music` generators and
 `FileSource`, `dsp` with `RATE`, `rng`). Depend on it by git tag (`git = "https://github.com/50hoursaweek/hushhour", tag = "v0.2.1"`, package `hushhour-core`)
 or as a submodule; do not vendor copies any more. Fixes land there for both apps. The audio
 mixer (`src/sound.rs`) stays in the Linux app for now because it is written around the ALSA

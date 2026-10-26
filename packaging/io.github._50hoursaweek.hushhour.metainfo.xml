@@ -38,23 +38,23 @@
   <screenshots>
     <screenshot type="default">
       <caption>Writing in the light theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.3/packaging/screenshots/editor-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.6.0/packaging/screenshots/editor-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The spotlight on one paragraph, dark theme</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.3/packaging/screenshots/editor-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.6.0/packaging/screenshots/editor-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>The editor beside its live preview</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.3/packaging/screenshots/split-light.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.6.0/packaging/screenshots/split-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The dark theme with the menu open</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.3/packaging/screenshots/menu-dark.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.6.0/packaging/screenshots/menu-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>Sound and music settings</caption>
-      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.5.3/packaging/screenshots/sound-dialog.png</image>
+      <image>https://raw.githubusercontent.com/50hoursaweek/hushhour/v0.6.0/packaging/screenshots/sound-dialog.png</image>
     </screenshot>
   </screenshots>
   <branding>
@@ -70,6 +70,12 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.6.0" date="2026-10-26">
+      <description>
+        <p>Saving a new document now suggests a file name from the first five words of its first line, instead of "Untitled".</p>
+        <p>The Unfold icon has bolder lines.</p>
+      </description>
+    </release>
     <release version="0.5.3" date="2026-10-16">
       <description>
         <p>A new icon, "Unfold": waves settling into straight lines, with a light version in the About dialog for the light and sepia themes.</p>

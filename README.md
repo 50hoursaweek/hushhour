@@ -103,6 +103,10 @@ AppImage also carries standard update information, so AppImage update tools (Gea
 AppImageUpdate) can update it in place from each release's `.zsync` file. Inside a Flatpak,
 Flatpak handles updates and the question is not asked.
 
+Saving a new document offers the first five words of its first line as the file name
+(Markdown marks and characters awkward in file names left out, at most 60 characters),
+the same title the iPad app gives new documents; the dialog asks before replacing a file.
+
 The text column is at most 66 characters wide and centred; zooming reflows the text and
 keeps the margins. The About dialog shows the version and build number and links to the
 credits and the installed licence texts. `build.rs` increments `build-number` on every

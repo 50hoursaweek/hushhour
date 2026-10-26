@@ -598,7 +598,8 @@ impl HushHour {
                 let generation = self.generation;
                 let text = Arc::new(self.content.text());
                 let written = text.clone();
-                Task::perform(save_dialog(text), move |result| Message::Saved { generation, text: written.clone(), result })
+                let name = suggested_name(self.path.as_deref(), &text);
+                Task::perform(save_dialog(text, name), move |result| Message::Saved { generation, text: written.clone(), result })
             }
             Message::Saved { generation, text, result } => {
                 self.saving = false;
@@ -2368,10 +2369,23 @@ fn load_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), String> {
     Ok((path, Arc::new(text)))
 }
 
-async fn save_dialog(contents: Arc<String>) -> Result<PathBuf, String> {
+/// The name the Save dialog offers: the file's own name for Save As, and for a new
+/// document the first five words of its first line (as the iPad names new documents),
+/// else "Untitled.md". The dialog asks before replacing a file of the same name.
+fn suggested_name(path: Option<&Path>, text: &str) -> String {
+    if let Some(name) = path.and_then(Path::file_name) {
+        return name.to_string_lossy().into_owned();
+    }
+    hushhour_core::title::suggest(text)
+        .map(|title| format!("{title}.md"))
+        .filter(|name| !hushhour_core::title::is_untitled(name))
+        .unwrap_or_else(|| "Untitled.md".to_owned())
+}
+
+async fn save_dialog(contents: Arc<String>, name: String) -> Result<PathBuf, String> {
     let handle = rfd::AsyncFileDialog::new()
         .add_filter("Markdown", &["md", "markdown", "txt"])
-        .set_file_name("Untitled.md")
+        .set_file_name(name)
         .save_file()
         .await
         .ok_or_else(|| "cancelled".to_owned())?;
@@ -2923,6 +2937,18 @@ mod tests {
         assert!(a.start_update_check(t0 + day - 1).is_none());
         assert!(a.start_update_check(t0 + day).is_some(), "due again a day later");
         assert!(a.start_update_check(t0 + 2 * day).is_none(), "one check at a time");
+    }
+
+    /// A new document's Save dialog offers its first line's first five words as the name;
+    /// Save As offers the file's own name.
+    #[test]
+    fn save_dialog_suggests_a_name() {
+        let text = "# Letter to Anna, about the trip\n\nDear Anna";
+        assert_eq!(suggested_name(None, text), "Letter to Anna, about the.md");
+        assert_eq!(suggested_name(None, ""), "Untitled.md");
+        assert_eq!(suggested_name(None, "---\n***"), "Untitled.md");
+        assert_eq!(suggested_name(None, "Untitled 3"), "Untitled.md", "not a name New would give");
+        assert_eq!(suggested_name(Some(Path::new("/notes/Ideas.md")), text), "Ideas.md");
     }
 
     /// Preview links open only web and mail addresses.
