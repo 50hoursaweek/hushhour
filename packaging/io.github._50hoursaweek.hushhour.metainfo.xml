@@ -72,7 +72,7 @@
   <releases>
     <release version="0.7.0" date="2026-11-04">
       <description>
-        <p>HushHour is now called Slowpage. Settings, the recent-files list and your own music move to the new folders on first launch; documents are untouched.</p>
+        <p>HushHour is now called Slowpage. Settings, the recent-files list and your own music move to the new folders on first launch; documents are untouched. The music credit now reads: generated with Google Lyria 3 (AI, SynthID watermark), dedicated to the public domain under CC0, to the extent any rights exist.</p>
       </description>
     </release>
     <release version="0.6.0" date="2026-10-26">
