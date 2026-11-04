@@ -1,4 +1,4 @@
-//! The platform-independent heart of HushHour, shared by the Linux app and the ports.
+//! The platform-independent heart of Slowpage, shared by the Linux app and the ports.
 //!
 //! Nothing here knows about a window, a widget or an audio device: the Markdown scanner
 //! works on one line at a time, the preview model is a plain block tree, the animated background a
@@ -7,6 +7,7 @@
 //! editor, renders the audio through its own device layer, and keeps the document-safety
 //! rules in `docs/document-safety.md`.
 
+pub mod appdir;
 pub mod backdrop;
 pub mod dsp;
 pub mod history;

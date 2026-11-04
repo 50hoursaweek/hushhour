@@ -1,4 +1,4 @@
-//! HushHour: a quiet Markdown editor for Linux, built with iced.
+//! Slowpage: a quiet Markdown editor for Linux, built with iced.
 
 mod atomic;
 mod backdrop;
@@ -37,9 +37,9 @@ use music::{Music, MusicDirs};
 use prefs::{Backdrop, FontKind, UpdateCheck, MAX_LINE_HEIGHT, MAX_SIZE, MAX_TRANSPARENCY, MIN_LINE_HEIGHT, MIN_SIZE, Preferences, SoundSet, ViewMode};
 use stats::Stats;
 
-const APP_NAME: &str = "HushHour";
+const APP_NAME: &str = "Slowpage";
 /// Incremented by build.rs on every build; see the About section of the menu.
-const BUILD: &str = env!("HUSHHOUR_BUILD");
+const BUILD: &str = env!("SLOWPAGE_BUILD");
 /// The dark icon is the window and launcher icon; the About dialog uses the light one in the
 /// light and sepia themes.
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
@@ -55,7 +55,7 @@ const UI_FONT: Font = Font {
 };
 const DRAG_STRIP: f32 = 28.0;
 /// What the update question says, in the welcome dialog and in its own dialog.
-const UPDATE_QUESTION: &str = "HushHour can check GitHub once a day for a new version and tell you in the status bar. It sends nothing about you or your documents.";
+const UPDATE_QUESTION: &str = "Slowpage can check GitHub once a day for a new version and tell you in the status bar. It sends nothing about you or your documents.";
 /// Status bar text fades this far towards the page colour: 4.5:1 or better in every theme.
 const STATUS_FADE: f32 = 0.3;
 // Text column layout. The measure is set in characters of the window's base size
@@ -85,7 +85,7 @@ enum Dialog {
     Appearance,
     Sound,
     About,
-    /// Asks once whether HushHour may check for updates (for users past the welcome dialog).
+    /// Asks once whether Slowpage may check for updates (for users past the welcome dialog).
     Updates,
 }
 
@@ -95,9 +95,9 @@ enum Pending {
     Quit,
     New,
     Open,
-    /// Open the file held in `HushHour::pending_path`.
+    /// Open the file held in `Slowpage::pending_path`.
     OpenRecent,
-    /// Replace the document with the already loaded file in `HushHour::pending_open`.
+    /// Replace the document with the already loaded file in `Slowpage::pending_open`.
     Replace,
 }
 
@@ -110,7 +110,7 @@ struct Authorisation {
     edits: u64,
 }
 
-struct HushHour {
+struct Slowpage {
     content: text_editor::Content,
     /// Cached copy of the document, kept in sync after every edit.
     text: String,
@@ -271,7 +271,7 @@ enum Message {
     Quit,
 }
 
-impl HushHour {
+impl Slowpage {
     fn new() -> (Self, Task<Message>) {
         let music_dirs = MusicDirs::locate();
         // Create the user's folder so it is easy to find and drop tracks into.
@@ -401,7 +401,7 @@ impl HushHour {
                     tasks.push(Task::done(Message::SelfTest));
                 }
                 Some(other) => {
-                    eprintln!("hushhour: unknown option {other}");
+                    eprintln!("slowpage: unknown option {other}");
                     std::process::exit(2);
                 }
                 None => {
@@ -409,7 +409,7 @@ impl HushHour {
                     if file.is_none() {
                         file = Some(PathBuf::from(arg));
                     } else {
-                        eprintln!("hushhour: ignoring extra path {}", PathBuf::from(arg).display());
+                        eprintln!("slowpage: ignoring extra path {}", PathBuf::from(arg).display());
                     }
                 }
             }
@@ -852,7 +852,7 @@ impl HushHour {
                     }
                     Err(e) => {
                         // Offline, say: nothing in the window; the next try is a day later.
-                        eprintln!("hushhour: update check failed: {e}");
+                        eprintln!("slowpage: update check failed: {e}");
                         self.update_status = Some("The last check could not reach GitHub.".to_owned());
                         Task::none()
                     }
@@ -928,7 +928,7 @@ impl HushHour {
                 let (w, h) = (shot.size.width, shot.size.height);
                 match image::save_buffer(&path, &shot.rgba, w, h, image::ColorType::Rgba8) {
                     Ok(()) => println!("SCREENSHOT {} {w}x{h} scale {}", path.display(), shot.scale_factor),
-                    Err(e) => eprintln!("hushhour: could not write {}: {e}", path.display()),
+                    Err(e) => eprintln!("slowpage: could not write {}: {e}", path.display()),
                 }
                 self.quit()
             }
@@ -1115,8 +1115,8 @@ impl HushHour {
             ]
             .spacing(8)
             .into(),
-            UpdateCheck::On => muted_text("HushHour checks GitHub for a new version once a day. You can turn this off in About."),
-            UpdateCheck::Off => muted_text("HushHour does not check for updates. You can turn this on in About."),
+            UpdateCheck::On => muted_text("Slowpage checks GitHub for a new version once a day. You can turn this off in About."),
+            UpdateCheck::Off => muted_text("Slowpage does not check for updates. You can turn this on in About."),
         }
     }
 
@@ -1525,7 +1525,7 @@ impl HushHour {
             action("Toggle decorations", "Ctrl+Shift+D", Message::ToggleDecorations),
             action("Quit", "Ctrl+Q", Message::Quit),
             divider(),
-            action("About HushHour…", "", Message::OpenDialog(Dialog::About)),
+            action("About Slowpage…", "", Message::OpenDialog(Dialog::About)),
         ]
         .spacing(4)
         .width(300.0);
@@ -1557,7 +1557,7 @@ impl HushHour {
         let paragraph = |s: &'static str| text(s).size(14.0).font(UI_FONT).width(Length::Fill);
         let (title, body): (&str, Element<'_, Message>) = match dialog {
             Dialog::Welcome => (
-                "Welcome to HushHour",
+                "Welcome to Slowpage",
                 column![
                     paragraph("A quiet place to write. The page is the whole window: there is no toolbar, and the window has no title bar."),
                     paragraph("The ☰ button in the top-left corner (or Ctrl+,) opens the menu, with file actions, Appearance, and Sound and music."),
@@ -1679,7 +1679,7 @@ impl HushHour {
             Dialog::Credits => (
                 "Credits and licences",
                 column![
-                    paragraph("HushHour is released under the MIT License."),
+                    paragraph("Slowpage is released under the MIT License."),
                     paragraph("Fonts: IBM Plex Mono and IBM Plex Sans (IBM), Literata (TypeTogether for Google Fonts) and Lato (Łukasz Dziedzic), all under the SIL Open Font License 1.1."),
                     paragraph("Typing sounds: cut from Keyboard Soundpack #1 by unicaegames (OpenGameArt), CC0 1.0."),
                     paragraph("Music loops: generated by the author with Google Lyria 3 and released under CC0 1.0. Soundscapes are synthesised in code."),
@@ -2007,7 +2007,7 @@ impl HushHour {
             muted(self.notice.clone().unwrap_or_default()),
             space().width(16),
             match &self.update_available {
-                Some(r) => Element::from(item(format!("HushHour {} is available", r.label()), true, Message::OpenLink(r.url.clone()))),
+                Some(r) => Element::from(item(format!("Slowpage {} is available", r.label()), true, Message::OpenLink(r.url.clone()))),
                 None => space().width(0).into(),
             },
             item(
@@ -2086,12 +2086,12 @@ impl HushHour {
     }
 }
 
-/// Where the licence texts are installed: `../share/licenses/hushhour` next to the
+/// Where the licence texts are installed: `../share/licenses/slowpage` next to the
 /// executable (AppImage and Flatpak layouts), else the source tree.
 fn licences_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let candidates = [
-        exe.parent()?.join("../share/licenses/hushhour"),
+        exe.parent()?.join("../share/licenses/slowpage"),
         PathBuf::from(env!("CARGO_MANIFEST_DIR")),
     ];
     candidates.into_iter().find(|p| p.is_dir())
@@ -2407,14 +2407,14 @@ fn save_file(path: &Path, contents: &str) -> Result<(), String> {
 
 pub fn main() -> iced::Result {
     let size = requested_size().unwrap_or(WINDOW_SIZE);
-    iced::application(HushHour::new, HushHour::update, HushHour::view)
-        .title(HushHour::title)
-        .theme(|app: &HushHour| app.prefs.theme.theme())
-        .style(|_app: &HushHour, theme: &Theme| iced::theme::Style {
+    iced::application(Slowpage::new, Slowpage::update, Slowpage::view)
+        .title(Slowpage::title)
+        .theme(|app: &Slowpage| app.prefs.theme.theme())
+        .style(|_app: &Slowpage, theme: &Theme| iced::theme::Style {
             background_color: Color::TRANSPARENT,
             text_color: theme.palette().text,
         })
-        .subscription(HushHour::subscription)
+        .subscription(Slowpage::subscription)
         .default_font(FontKind::Mono.font())
         .font(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf").as_slice())
@@ -2452,29 +2452,29 @@ mod tests {
     use super::*;
 
     /// A headless app: default preferences, no sound, nothing persisted.
-    fn app() -> HushHour {
+    fn app() -> Slowpage {
         let mut prefs = Preferences::default();
         prefs.typing_sound = false;
-        let dirs = MusicDirs { bundled: None, user: std::env::temp_dir().join("hushhour-tests-music") };
-        let mut app = HushHour::fresh(prefs, Vec::new(), dirs);
+        let dirs = MusicDirs { bundled: None, user: std::env::temp_dir().join("slowpage-tests-music") };
+        let mut app = Slowpage::fresh(prefs, Vec::new(), dirs);
         app.persist = false;
         app.recent_store = None;
         app
     }
 
-    fn type_text(app: &mut HushHour, s: &str) {
+    fn type_text(app: &mut Slowpage, s: &str) {
         for c in s.chars() {
             let edit = if c == '\n' { Edit::Enter } else { Edit::Insert(c) };
             let _ = app.update(Message::Edit(text_editor::Action::Edit(edit)));
         }
     }
 
-    fn saved(app: &HushHour, path: &Path) -> Message {
+    fn saved(app: &Slowpage, path: &Path) -> Message {
         Message::Saved { generation: app.generation, text: Arc::new(app.content.text()), result: Ok(path.to_owned()) }
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hushhour-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("slowpage-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -2757,7 +2757,7 @@ mod tests {
     fn edits_cannot_grow_the_document_past_the_limit() {
         let mut a = app();
         a.size_limit = 8;
-        let edit = |a: &mut HushHour, e: Edit| {
+        let edit = |a: &mut Slowpage, e: Edit| {
             let _ = a.update(Message::Edit(text_editor::Action::Edit(e)));
             assert!(a.text.len() as u64 <= a.size_limit, "the document must never exceed the limit");
         };
@@ -2850,7 +2850,7 @@ mod tests {
         let _ = a.update(Message::SetBackdrop(Backdrop::Waves));
         assert!(a.backdrop_shown());
         let start = Instant::now();
-        let tick = |a: &mut HushHour, ms: u64| a.advance_backdrop(start + Duration::from_millis(ms));
+        let tick = |a: &mut Slowpage, ms: u64| a.advance_backdrop(start + Duration::from_millis(ms));
         tick(&mut a, 0);
         let c0 = a.motion.clock;
         tick(&mut a, 200);

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=HushHour
+Name=Slowpage
 Comment=A quiet place to write
-Exec=hushhour %f
+Exec=slowpage %f
 Icon=io.github._50hoursaweek.hushhour
 Terminal=false
 Categories=Office;TextEditor;

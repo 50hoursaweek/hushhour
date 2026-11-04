@@ -25,7 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run the tests
         env:
-          HUSHHOUR_BUILD: ci-${{ github.run_number }}
+          SLOWPAGE_BUILD: ci-${{ github.run_number }}
         run: cargo test --locked --workspace
 
   appimage:
@@ -56,11 +56,11 @@ jobs:
       - name: Build the AppImage
         env:
           # The About dialog shows this instead of the local build counter.
-          HUSHHOUR_BUILD: ci-${{ github.run_number }}
+          SLOWPAGE_BUILD: ci-${{ github.run_number }}
         run: bash packaging/build-appimage.sh
       - name: Check the glibc requirement
         run: |
-          max=$(objdump -T target/release/hushhour | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
+          max=$(objdump -T target/release/slowpage | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
           echo "highest glibc symbol version: $max (supported maximum: GLIBC_2.35)"
           [ "$(printf '%s\n' "$max" GLIBC_2.35 | sort -V | tail -1)" = GLIBC_2.35 ] || { echo "binary needs a newer glibc than the baseline" >&2; exit 1; }
       # The self-test needs a display and a GPU, which the runner lacks; the glibc
@@ -72,9 +72,13 @@ jobs:
           TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
         run: |
           version=${TAG#v}
-          appimage="HushHour-${version}-x86_64.AppImage"
-          cp dist/HushHour-x86_64.AppImage "$appimage"
+          appimage="Slowpage-${version}-x86_64.AppImage"
+          cp dist/Slowpage-x86_64.AppImage "$appimage"
           # For AppImage update tools: the update information embedded by build-appimage.sh
-          # points at the newest release's HushHour-*-x86_64.AppImage.zsync.
+          # points at the newest release's Slowpage-*-x86_64.AppImage.zsync.
           zsyncmake -u "$appimage" -o "$appimage.zsync" "$appimage"
-          gh release upload "$TAG" "$appimage" "$appimage.zsync" --clobber
+          # AppImages from before the rename look for HushHour-*-x86_64.AppImage.zsync; the
+          # same file under that name (its URL is relative) keeps them updating.
+          legacy="HushHour-${version}-x86_64.AppImage.zsync"
+          cp "$appimage.zsync" "$legacy"
+          gh release upload "$TAG" "$appimage" "$appimage.zsync" "$legacy" --clobber

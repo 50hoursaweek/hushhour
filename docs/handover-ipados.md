@@ -1,15 +1,19 @@
-# HushHour on iPadOS: handover to the PMO agent
+# Slowpage on iPadOS: handover to the PMO agent
 
 Written 2026-10-11 by Ink, the agent that owns the Linux hub (this repository), at `v0.1.6`;
-updated the same day for the rename: the product is **HushHour** (the name Inkpad was taken),
-icon `assets/hushhour-icon.svg`, app id `io.github._50hoursaweek.hushhour`. The GitHub
-repository is now https://github.com/50hoursaweek/hushhour (the old address redirects).
+updated the same day for the rename to HushHour (the name Inkpad was taken), and on 2026-11-04
+(v0.7.0) for the rename to **Slowpage** (two App Store apps use almost the name HushHour).
+Unchanged by the second rename, so nothing downstream breaks: the app id
+`io.github._50hoursaweek.hushhour`, the repository https://github.com/50hoursaweek/hushhour,
+the core crate `hushhour-core` (Rust path `hushhour_core`), and the icon files
+`assets/hushhour-icon*.svg`. The Linux config and data folders moved from `hushhour` to
+`slowpage` (`hushhour_core::appdir`).
 
 ## Ownership
 
 | Area | Owner |
 |---|---|
-| This repository, the Rust/iced Linux app, AppImage releases, Flathub submission | **Ink** (Claude Code session "Ink" on the Linux laptop). Nothing lands here except through Ink. |
+| This repository, the Rust/iced Linux app, AppImage releases | **Ink** (Claude Code session "Ink" on the Linux laptop). Nothing lands here except through Ink. |
 | The iPadOS port: its repository, Xcode project, Mac Mini tooling, App Store work | **PMO** (on the Mac Mini), and whatever agent PMO spawns for it. |
 | Decisions on scope, name, pricing, accounts, money | **The user** (Frank / 50hoursaweek). |
 
@@ -22,7 +26,7 @@ so this repository's CI, Flatpak manifest and release workflow stay untouched. V
 git-subtree the shared Rust modules from a tagged release of this repository; do not fork the whole
 Linux app.
 
-## What HushHour is
+## What Slowpage is
 
 A quiet, distraction-free Markdown editor. Read `README.md` first (features, shortcuts, licences),
 then `src/prefs.rs` (every user setting and its default) and the scripted self-test in
@@ -118,13 +122,13 @@ apps share one source.
    (or use uniffi as a build dependency); `cargo-lipo` is not needed with modern Xcode (xcframework).
 3. `gh` CLI authenticated as 50hoursaweek; `git clone https://github.com/50hoursaweek/hushhour -b v0.1.6`
    for reference only.
-4. A new repository for the port, folders like `~/Projects/hushhour-ipados/{HushHourCore (Rust), HushHour (Xcode)}`.
+4. A new repository for the port, folders like `~/Projects/hushhour-ipados/{HushHourCore (Rust), Slowpage (Xcode)}`.
 5. Apple Developer account for TestFlight and the App Store: the user's decision; ask before
    spending anything.
 
 ## Open decisions for the user (PMO to ask in its chat)
 
-- App name on the App Store ("HushHour" may be taken), bundle id (suggest `io.github._50hoursaweek.hushhour`
+- App name on the App Store ("Slowpage" may be taken), bundle id (suggest `io.github._50hoursaweek.hushhour`
   mirrored as `com.50hoursaweek.hushhour`), price.
 - iCloud Drive sync of documents (recommended: yes, via the document picker / `UIDocument`).
 - Whether the iPad gets the frosted-glass setting (vibrancy is cheap on iPadOS).
@@ -133,6 +137,6 @@ apps share one source.
 ## Where to look
 
 - Releases and the current Linux build: https://github.com/50hoursaweek/hushhour/releases (v0.1.6).
-- Flathub metadata and screenshots: `packaging/`.
+- Desktop entry, AppStream metadata and screenshots: `packaging/`.
 - Review history and lessons (data-safety rules the port must keep): ask Ink; the review files
   are not in the repository.

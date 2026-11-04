@@ -33,7 +33,7 @@ impl ThemeKind {
     pub fn theme(self) -> Theme {
         let (name, palette) = match self {
             Self::Light => (
-                "HushHour Light",
+                "Slowpage Light",
                 Palette {
                     background: rgb(0xF7, 0xF7, 0xF7),
                     text: rgb(0x1A, 0x1A, 0x1A),
@@ -44,7 +44,7 @@ impl ThemeKind {
                 },
             ),
             Self::Sepia => (
-                "HushHour Sepia",
+                "Slowpage Sepia",
                 Palette {
                     background: rgb(0xF4, 0xEC, 0xD8),
                     text: rgb(0x3B, 0x30, 0x24),
@@ -55,7 +55,7 @@ impl ThemeKind {
                 },
             ),
             Self::Dark => (
-                "HushHour Dark",
+                "Slowpage Dark",
                 Palette {
                     background: rgb(0x1B, 0x1B, 0x1B),
                     text: rgb(0xCC, 0xCC, 0xCC),

@@ -111,7 +111,7 @@ impl Sound {
     pub fn start(dirs: MusicDirs) -> Self {
         let (tx, rx) = mpsc::channel::<Command>();
         std::thread::Builder::new()
-            .name("hushhour-sound".into())
+            .name("slowpage-sound".into())
             .spawn(move || mixer(rx, dirs))
             .expect("spawn sound thread");
         Self { tx }

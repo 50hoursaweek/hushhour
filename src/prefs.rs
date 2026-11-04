@@ -144,7 +144,7 @@ impl fmt::Display for Backdrop {
     }
 }
 
-/// Whether HushHour may check GitHub for a newer release. `Ask` until the user answers
+/// Whether Slowpage may check GitHub for a newer release. `Ask` until the user answers
 /// (in the welcome dialog, or a one-off dialog); nothing is checked before that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UpdateCheck {
@@ -277,21 +277,15 @@ impl Default for Preferences {
     }
 }
 
-/// The configuration directory, `$XDG_CONFIG_HOME/hushhour`. The app was called Inkpad
-/// until 0.2.0: an `inkpad` directory left from then is renamed on first use, so the
-/// settings and the recent-files list carry over.
+/// The configuration directory, `$XDG_CONFIG_HOME/slowpage`. A `hushhour` or `inkpad`
+/// directory left from the app's earlier names is renamed on first use (see
+/// [`hushhour_core::appdir`]), so the settings and the recent-files list carry over.
 pub fn config_dir() -> Option<PathBuf> {
-    let base = dirs::config_dir()?;
-    let new = base.join("hushhour");
-    let old = base.join("inkpad");
-    if !new.exists() && old.is_dir() {
-        let _ = std::fs::rename(&old, &new);
-    }
-    Some(new)
+    Some(hushhour_core::appdir::resolve(&dirs::config_dir()?))
 }
 
 impl Preferences {
-    /// `$XDG_CONFIG_HOME/hushhour/preferences`.
+    /// `$XDG_CONFIG_HOME/slowpage/preferences`.
     pub fn path() -> Option<PathBuf> {
         config_dir().map(|d| d.join("preferences"))
     }

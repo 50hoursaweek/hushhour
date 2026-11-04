@@ -1471,27 +1471,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
-name = "hushhour"
-version = "0.6.0"
-dependencies = [
- "cosmic-text",
- "dirs",
- "hushhour-core",
- "iced",
- "image",
- "libloading 0.9.0",
- "raw-window-handle",
- "rfd",
- "smol_str",
- "ureq",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols-plasma",
-]
-
-[[package]]
 name = "hushhour-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "dirs",
  "pulldown-cmark",
@@ -3501,6 +3482,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
 dependencies = [
  "version_check",
+]
+
+[[package]]
+name = "slowpage"
+version = "0.7.0"
+dependencies = [
+ "cosmic-text",
+ "dirs",
+ "hushhour-core",
+ "iced",
+ "image",
+ "libloading 0.9.0",
+ "raw-window-handle",
+ "rfd",
+ "smol_str",
+ "ureq",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols-plasma",
 ]
 
 [[package]]

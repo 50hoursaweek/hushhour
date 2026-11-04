@@ -117,7 +117,7 @@ fn to_bytes(values: &[f32]) -> Vec<u8> {
 
 fn begin<'a>(encoder: &'a mut wgpu::CommandEncoder, view: &'a wgpu::TextureView, load: wgpu::LoadOp<wgpu::Color>) -> wgpu::RenderPass<'a> {
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("hushhour backdrop"),
+        label: Some("slowpage backdrop"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view,
             depth_slice: None,
@@ -140,7 +140,7 @@ struct Cache {
 impl Cache {
     fn new(device: &wgpu::Device, pipeline: &Pipeline, width: u32, height: u32) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("hushhour backdrop"),
+            label: Some("slowpage backdrop"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
@@ -151,7 +151,7 @@ impl Cache {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("hushhour backdrop"),
+            label: Some("slowpage backdrop"),
             layout: &pipeline.blit_layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
@@ -204,16 +204,16 @@ fn render_pipeline(
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("hushhour backdrop"),
+        label: Some("slowpage backdrop"),
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("hushhour backdrop"),
+        label: Some("slowpage backdrop"),
         bind_group_layouts: &[layout],
         push_constant_ranges: &[],
     });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("hushhour backdrop"),
+        label: Some("slowpage backdrop"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &module,
@@ -243,24 +243,24 @@ impl shader::Pipeline for Pipeline {
     fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let buffer = |size: u64| {
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("hushhour backdrop"),
+                label: Some("slowpage backdrop"),
                 size,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         };
         let pattern_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("hushhour backdrop"),
+            label: Some("slowpage backdrop"),
             entries: &[uniform_entry(0)],
         });
         let pattern_uniforms = buffer((UNIFORM_FLOATS * 4) as u64);
         let pattern_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("hushhour backdrop"),
+            label: Some("slowpage backdrop"),
             layout: &pattern_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: pattern_uniforms.as_entire_binding() }],
         });
         let blit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("hushhour backdrop"),
+            label: Some("slowpage backdrop"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,

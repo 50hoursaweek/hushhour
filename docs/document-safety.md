@@ -1,6 +1,6 @@
 # Document safety rules
 
-What HushHour guarantees about the user's text, and how. Every port must keep these guarantees,
+What Slowpage guarantees about the user's text, and how. Every port must keep these guarantees,
 whatever its UI or storage layer. The Linux implementation is in `src/main.rs`; the headless
 tests named below are the executable form of each rule and should be reproduced on every platform.
 

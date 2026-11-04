@@ -52,7 +52,7 @@ pub fn fetch_latest() -> Result<Release, String> {
         .max_redirects(0)
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(10)))
-        .user_agent(concat!("HushHour/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Slowpage/", env!("CARGO_PKG_VERSION")))
         .build()
         .into();
     let response = agent.get(LATEST).call().map_err(|e| e.to_string())?;
@@ -68,7 +68,7 @@ pub fn fetch_latest() -> Result<Release, String> {
 pub async fn check() -> Result<Release, String> {
     let (tx, rx) = iced::futures::channel::oneshot::channel();
     std::thread::Builder::new()
-        .name("hushhour-update".into())
+        .name("slowpage-update".into())
         .spawn(move || {
             let _ = tx.send(fetch_latest());
         })

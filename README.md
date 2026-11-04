@@ -1,4 +1,4 @@
-# HushHour
+# Slowpage
 
 A quiet Markdown editor for Linux, written in Rust with [iced](https://iced.rs) 0.14.
 It was called Inkpad until 0.2.0; settings from that name are carried over.
@@ -30,8 +30,8 @@ glibc of the machine it was built on or newer; release AppImages are built by th
 GitHub Actions workflow on Ubuntu 22.04 (glibc 2.35), x86_64 only, and attached to the
 release.
 
-To build and install the Flatpak (app id `io.github._50hoursaweek.hushhour`, as submitted
-to Flathub), with `org.flatpak.Builder` and the Freedesktop 26.08 SDK installed:
+To build and install the Flatpak locally (app id `io.github._50hoursaweek.hushhour`, kept
+from the app's earlier name), with `org.flatpak.Builder` and the Freedesktop 26.08 SDK installed:
 
 ```sh
 flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github._50hoursaweek.hushhour.yml
@@ -68,15 +68,15 @@ Appearance and Sound and music, which open dialogs, then the Writing and Window 
 then About.
 
 Preferences (theme, font, size, line height, spotlight, anchor, background, update checks) are
-saved to `~/.config/hushhour/preferences` whenever they change; the last eight files opened
-or saved are listed in the menu and kept in `~/.config/hushhour/recent`. In the Flatpak these
-are `~/.var/app/io.github._50hoursaweek.hushhour/config/hushhour/preferences` and
-`.../config/hushhour/recent`.
+saved to `~/.config/slowpage/preferences` whenever they change; the last eight files opened
+or saved are listed in the menu and kept in `~/.config/slowpage/recent`. In the Flatpak these
+are `~/.var/app/io.github._50hoursaweek.hushhour/config/slowpage/preferences` and
+`.../config/slowpage/recent`.
 
 Typing sounds (two sets) and background music live in the Sound and music dialog: six
 bundled loops, five generated soundscapes, or your own tracks dropped in
-`~/.local/share/hushhour/music` (for the Flatpak:
-`~/.var/app/io.github._50hoursaweek.hushhour/data/hushhour/music`; the dialog shows the
+`~/.local/share/slowpage/music` (for the Flatpak:
+`~/.var/app/io.github._50hoursaweek.hushhour/data/slowpage/music`; the dialog shows the
 exact folder). The app starts silent. Sound needs the system ALSA library, which PipeWire
 and PulseAudio desktops provide.
 
@@ -91,14 +91,14 @@ into a cached texture, redrawn only when it moves; with the software renderer th
 plain. Every
 launch starts in the editor view; split and preview last for the session.
 
-Updates: the welcome dialog (or, for anyone past it, a one-off dialog) asks whether HushHour
+Updates: the welcome dialog (or, for anyone past it, a one-off dialog) asks whether Slowpage
 may check GitHub for a new version once a day; nothing is checked until the answer is yes, and
 the switch is in About afterwards. The first check runs right after a yes (on later launches,
 about ten seconds after start); after that there is at most one request every 24 hours,
 counting failed attempts. The check fetches
 `https://github.com/50hoursaweek/hushhour/releases/latest` without following the redirect and
 reads the release it points to; nothing about you or your documents is sent. A newer release
-shows as "HushHour x.y.z is available" in the status bar, which opens the release page. The
+shows as "Slowpage x.y.z is available" in the status bar, which opens the release page. The
 AppImage also carries standard update information, so AppImage update tools (Gear Lever,
 AppImageUpdate) can update it in place from each release's `.zsync` file. Inside a Flatpak,
 Flatpak handles updates and the question is not asked.
@@ -110,8 +110,8 @@ the same title the iPad app gives new documents; the dialog asks before replacin
 The text column is at most 66 characters wide and centred; zooming reflows the text and
 keeps the margins. The About dialog shows the version and build number and links to the
 credits and the installed licence texts. `build.rs` increments `build-number` on every
-build that follows a source change; set `HUSHHOUR_BUILD` in the environment for a
-reproducible build (Flathub and CI do), and the file is left alone.
+build that follows a source change; set `SLOWPAGE_BUILD` in the environment for a
+reproducible build (CI and the Flatpak manifest do), and the file is left alone.
 
 Debug flags: `--anchor` starts with the anchor on, `--menu` starts with the menu open, `--view=split|preview` starts in that view, `--dialog=updates` opens the update question, `--check-update` checks GitHub once, prints the result and exits, `--size=WxH` sets the window size, `--screenshot=PATH` captures the window and quits, `--line=N` puts the caret on a line, `--dialog=welcome|appearance|sound|about` with that dialog open, `--soundtest` plays a few key sounds and exits, `--end` moves the caret
 to the document end, `--selftest` runs a scripted undo/redo check and exits.
@@ -136,7 +136,7 @@ to the document end, `--selftest` runs a scripted undo/redo check and exits.
 
 ## Licence
 
-HushHour is released under the MIT License (see `LICENSE`). The bundled music loops are
+Slowpage is released under the MIT License (see `LICENSE`). The bundled music loops are
 dedicated to the public domain under CC0 1.0.
 
 ## Credits and licensing of bundled assets
@@ -146,7 +146,7 @@ dedicated to the public domain under CC0 1.0.
   Font License 1.1; see `assets/fonts/README.md`.
 - **Code**: the text editor widget in `src/editor/widget.rs` is iced's, extended; iced is
   MIT (`packaging/LICENSE-iced.txt`). Both packages install every licence text under
-  `share/licenses/hushhour`, reachable from About.
+  `share/licenses/slowpage`, reachable from About.
 - **Typing sounds**: cut from *Keyboard Soundpack #1* by unicaegames, OpenGameArt, CC0 1.0
   public domain dedication; see `assets/sounds/README.md`.
 - **Bundled music loops**: generated by the project author with Google Lyria 3 through
