@@ -77,8 +77,4 @@ jobs:
           # For AppImage update tools: the update information embedded by build-appimage.sh
           # points at the newest release's Slowpage-*-x86_64.AppImage.zsync.
           zsyncmake -u "$appimage" -o "$appimage.zsync" "$appimage"
-          # AppImages from before the rename look for HushHour-*-x86_64.AppImage.zsync; the
-          # same file under that name (its URL is relative) keeps them updating.
-          legacy="HushHour-${version}-x86_64.AppImage.zsync"
-          cp "$appimage.zsync" "$legacy"
-          gh release upload "$TAG" "$appimage" "$appimage.zsync" "$legacy" --clobber
+          gh release upload "$TAG" "$appimage" "$appimage.zsync" --clobber
