@@ -61,6 +61,7 @@ dependencies.
 The window has no title bar. Drag the top strip or the status bar to move it,
 double-click the top strip to maximise, and use your compositor's resize
 gesture (Meta + right-drag on KDE) or Ctrl+Shift+D to bring decorations back.
+The mouse pointer hides while you type and comes back when the mouse moves.
 A welcome dialog explains the menu and the sound settings at launch until its
 "Don't show this again" box is ticked.
 The ☰ button in the top-left corner opens the menu: file actions and the recent files, then

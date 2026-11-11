@@ -6,6 +6,7 @@ mod editor;
 mod frost;
 mod highlight;
 mod palette;
+mod pointer;
 mod prefs;
 mod preview;
 mod recent;
@@ -176,6 +177,8 @@ struct Slowpage {
     motion: backdrop::Motion,
     backdrop_tick: Option<Instant>,
     last_typed: Option<Instant>,
+    /// The mouse pointer is hidden from the first keystroke until the mouse moves.
+    pointer_hidden: bool,
     focused: bool,
     /// Debug: a `--screenshot` capture is pending.
     capturing: bool,
@@ -268,6 +271,8 @@ enum Message {
     /// Advances the background animation (only while a pattern is shown and the window has focus).
     BackdropTick(Instant),
     WindowFocused(bool),
+    /// The mouse moved, clicked or scrolled: show the pointer again.
+    ShowPointer,
     Quit,
 }
 
@@ -339,6 +344,7 @@ impl Slowpage {
             motion: backdrop::Motion::default(),
             backdrop_tick: None,
             last_typed: None,
+            pointer_hidden: false,
             focused: true,
             capturing: false,
             update_available: None,
@@ -475,6 +481,7 @@ impl Slowpage {
                 }
                 if is_edit {
                     self.last_typed = Some(Instant::now());
+                    self.pointer_hidden = true;
                     let new_text = self.content.text();
                     let after = self.content.cursor().position;
                     if self.history.record(&self.text, &new_text, core_pos(before), core_pos(after)) {
@@ -867,8 +874,13 @@ impl Slowpage {
                 self.advance_backdrop(now);
                 Task::none()
             }
+            Message::ShowPointer => {
+                self.pointer_hidden = false;
+                Task::none()
+            }
             Message::WindowFocused(focused) => {
                 self.focused = focused;
+                self.pointer_hidden &= focused;
                 // Time spent unfocused is not animated: the next tick starts afresh.
                 self.backdrop_tick = None;
                 Task::none()
@@ -2074,15 +2086,14 @@ impl Slowpage {
         // translucent when the frosted glass is on.
         let radius = if self.maximized || self.fullscreen { 0.0 } else { CORNER_RADIUS };
         let page_alpha = if self.prefs.frost { 1.0 - self.prefs.frost_transparency } else { 1.0 };
-        container(layout)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |theme: &Theme| container::Style {
+        let page = container(layout).width(Length::Fill).height(Length::Fill).style(move |theme: &Theme| {
+            container::Style {
                 background: Some(Background::Color(Color { a: page_alpha, ..theme.palette().background })),
                 border: Border::default().rounded(radius),
                 ..container::Style::default()
-            })
-            .into()
+            }
+        });
+        pointer::HideWhileTyping::new(page, self.pointer_hidden, Message::ShowPointer).into()
     }
 }
 
@@ -2977,5 +2988,22 @@ mod tests {
         let err = load_file(path).unwrap_err();
         assert!(err.contains("larger than"), "{err}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pointer_hides_while_typing() {
+        let mut a = app();
+        assert!(!a.pointer_hidden);
+        let _ = a.update(Message::Edit(text_editor::Action::Move(text_editor::Motion::Right)));
+        assert!(!a.pointer_hidden, "moving the caret is not typing");
+        type_text(&mut a, "Hi");
+        assert!(a.pointer_hidden);
+        let _ = a.update(Message::ShowPointer);
+        assert!(!a.pointer_hidden, "the mouse brings it back");
+        type_text(&mut a, "!");
+        let _ = a.update(Message::WindowFocused(false));
+        assert!(!a.pointer_hidden, "never left hidden behind another window");
+        let _ = a.update(Message::WindowFocused(true));
+        assert!(!a.pointer_hidden);
     }
 }
