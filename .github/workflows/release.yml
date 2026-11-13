@@ -90,14 +90,13 @@ jobs:
       - name: Install Flatpak and the builder
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          # The builder cannot install its own dependencies here (no session bus), so the
-          # SDK, the Rust extension and the runtime come first.
-          flatpak install --user -y --noninteractive flathub org.flatpak.Builder \
-            org.freedesktop.Sdk//26.08 org.freedesktop.Platform//26.08 \
-            org.freedesktop.Sdk.Extension.rust-stable//26.08
       - name: Build the Flatpak bundle
+        # Ubuntu's flatpak-builder: the sandboxed org.flatpak.Builder needs a session bus
+        # to reach the host's flatpak, which a runner does not have.
+        env:
+          FLATPAK_BUILDER: flatpak-builder
         run: bash packaging/build-flatpak.sh
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
