@@ -70,6 +70,12 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.7.1" date="2026-11-13">
+      <description>
+        <p>The mouse pointer hides while you type and comes back when you move the mouse.</p>
+        <p>Slowpage now draws on the integrated GPU. On laptops with two graphics chips the window could stop updating while the app kept running; set WGPU_POWER_PREF=high to use the discrete GPU anyway.</p>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-11-04">
       <description>
         <p>HushHour is now called Slowpage. Settings, the recent-files list and your own music move to the new folders on first launch; documents are untouched. The music credit now reads: generated with Google Lyria 3 (AI, SynthID watermark), dedicated to the public domain under CC0, to the extent any rights exist.</p>

@@ -1,6 +1,6 @@
 [package]
 name = "slowpage"
-version = "0.7.0"
+version = "0.7.1"
 license = "MIT"
 description = "A quiet Markdown editor for Linux"
 repository = "https://github.com/50hoursaweek/hushhour"

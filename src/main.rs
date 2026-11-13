@@ -2416,7 +2416,21 @@ fn save_file(path: &Path, contents: &str) -> Result<(), String> {
     atomic::write(path, contents.as_bytes()).map_err(|e| e.to_string())
 }
 
+/// Draw on the integrated GPU unless `WGPU_POWER_PREF` says otherwise. iced asks wgpu for
+/// the high-performance adapter, which on a hybrid laptop is the discrete card while the
+/// screens hang off the integrated one: every frame then crosses between the two, and on
+/// GNOME/Wayland with NVIDIA that hand-over has stalled, leaving the window showing an old
+/// frame while the app kept running (2026-10, 2026-11-13). A text editor needs no more than
+/// the integrated GPU, and the discrete one can stay asleep.
+fn prefer_integrated_gpu() {
+    if std::env::var_os("WGPU_POWER_PREF").is_none() {
+        // SAFETY: called first thing in `main`, before any other thread exists.
+        unsafe { std::env::set_var("WGPU_POWER_PREF", "low") };
+    }
+}
+
 pub fn main() -> iced::Result {
+    prefer_integrated_gpu();
     let size = requested_size().unwrap_or(WINDOW_SIZE);
     iced::application(Slowpage::new, Slowpage::update, Slowpage::view)
         .title(Slowpage::title)
