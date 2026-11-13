@@ -83,27 +83,40 @@ jobs:
   flatpak:
     needs: test
     runs-on: ubuntu-24.04
+    # Flathub's build image (current flatpak-builder and appstream); only a build environment,
+    # nothing is submitted to Flathub. Ubuntu's own flatpak-builder failed at appstream compose.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - name: Install Flatpak and the builder
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Build the Flatpak bundle
-        # Ubuntu's flatpak-builder: the sandboxed org.flatpak.Builder needs a session bus
-        # to reach the host's flatpak, which a runner does not have.
         env:
           FLATPAK_BUILDER: flatpak-builder
-        run: bash packaging/build-flatpak.sh
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          bash packaging/build-flatpak.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: dist/Slowpage-x86_64.flatpak
+
+  flatpak-attach:
+    needs: flatpak
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
         run: |
           bundle="Slowpage-${TAG#v}-x86_64.flatpak"
-          cp dist/Slowpage-x86_64.flatpak "$bundle"
+          mv Slowpage-x86_64.flatpak "$bundle"
           gh release upload "$TAG" "$bundle" --clobber
