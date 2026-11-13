@@ -1,5 +1,6 @@
-# Flatpak manifest. Build and install locally with:
+# Flatpak manifest, built from this checkout. Build and install locally with:
 #   flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github._50hoursaweek.hushhour.yml
+# Releases attach a single-file bundle made from it (packaging/build-flatpak.sh).
 app-id: io.github._50hoursaweek.hushhour
 runtime: org.freedesktop.Platform
 runtime-version: '26.08'
@@ -15,6 +16,9 @@ finish-args:
   # Audio through the sound server (ALSA inside the sandbox routes to it).
   - --socket=pulseaudio
   # Files are opened and saved through the file-chooser portal; no filesystem access needed.
+  # Network only for the optional daily update check (one request to github.com): a bundle
+  # installed from the GitHub release is not updated by `flatpak update`.
+  - --share=network
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
@@ -41,8 +45,14 @@ modules:
       - cp assets/sounds/README.md /app/share/licenses/slowpage/sounds/README.md
       - printf 'Music loops generated with Google Lyria 3 (AI, SynthID watermark).\nDedicated to the public domain under CC0, to the extent any rights exist.\nThey are the files in share/slowpage/music.\n' > /app/share/licenses/slowpage/MUSIC-CC0.txt
     sources:
-      - type: git
-        url: https://github.com/50hoursaweek/hushhour.git
-        tag: v0.7.1
-        commit: c803b3078c8c70da43bc76d3235b87bd4b36aeea
+      - type: dir
+        path: ..
+        skip:
+          - target
+          - dist
+          - build-dir
+          - .flatpak-builder
+          - .git
+          - .claude
+          - .env
       - cargo-sources.json

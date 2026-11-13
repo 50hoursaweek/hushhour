@@ -295,7 +295,7 @@ impl Slowpage {
         // Create the user's folder so it is easy to find and drop tracks into.
         let _ = std::fs::create_dir_all(&music_dirs.user);
         let mut app = Self::fresh(Preferences::load(), recent::load(), music_dirs);
-        app.dialog = first_dialog(&app.prefs, update::in_flatpak());
+        app.dialog = first_dialog(&app.prefs);
         // The first update check waits until the window and the document have settled.
         let mut tasks = vec![
             iced::widget::operation::focus_next(),
@@ -1126,9 +1126,6 @@ impl Slowpage {
 
     /// The welcome dialog's update question: two buttons until answered, then what was chosen.
     fn update_question<'a>(&self, question: iced::widget::Text<'a>) -> Element<'a, Message> {
-        if update::in_flatpak() {
-            return muted_text("Updates come from Flatpak.");
-        }
         match self.prefs.update_check {
             UpdateCheck::Ask => column![
                 question,
@@ -1147,9 +1144,6 @@ impl Slowpage {
 
     /// The About dialog's switch for update checks, with what the last check said.
     fn update_setting(&self) -> Element<'_, Message> {
-        if update::in_flatpak() {
-            return space().height(0).into();
-        }
         let on = self.prefs.update_check == UpdateCheck::On;
         let status = match (&self.update_status, on) {
             (_, false) => "Not checking for updates.".to_owned(),
@@ -1175,10 +1169,11 @@ impl Slowpage {
         .into()
     }
 
-    /// Update checks run only when the user said yes, outside tests and debug captures,
-    /// and not in a Flatpak (Flatpak updates the app itself).
+    /// Update checks run only when the user said yes, outside tests and debug captures. The
+    /// Flatpak checks too: it is a bundle from the GitHub release, which `flatpak update`
+    /// cannot update.
     fn update_checks_allowed(&self) -> bool {
-        self.prefs.update_check == UpdateCheck::On && self.persist && !update::in_flatpak()
+        self.prefs.update_check == UpdateCheck::On && self.persist
     }
 
     /// Start an update check if checks are on and the last one is a day old.
@@ -2128,11 +2123,11 @@ fn muted<'a>(s: String) -> iced::widget::Text<'a> {
 
 /// Small caps-style section heading.
 /// The dialog shown at launch: the welcome until dismissed for good, else the one-off
-/// update question while it is unanswered (never in a Flatpak).
-fn first_dialog(prefs: &Preferences, flatpak: bool) -> Option<Dialog> {
+/// update question while it is unanswered.
+fn first_dialog(prefs: &Preferences) -> Option<Dialog> {
     if prefs.show_welcome {
         Some(Dialog::Welcome)
-    } else if prefs.update_check == UpdateCheck::Ask && !flatpak {
+    } else if prefs.update_check == UpdateCheck::Ask {
         Some(Dialog::Updates)
     } else {
         None
@@ -2929,17 +2924,16 @@ mod tests {
     }
 
     /// Updates: asked in the welcome dialog, or once in its own dialog for users past the
-    /// welcome; nothing is checked until the answer is yes, and never in tests or a Flatpak.
+    /// welcome; nothing is checked until the answer is yes, and never in tests.
     #[test]
     fn update_check_is_asked_before_anything_is_checked() {
         let mut prefs = Preferences::default();
         assert_eq!(prefs.update_check, UpdateCheck::Ask);
-        assert_eq!(first_dialog(&prefs, false), Some(Dialog::Welcome));
+        assert_eq!(first_dialog(&prefs), Some(Dialog::Welcome));
         prefs.show_welcome = false;
-        assert_eq!(first_dialog(&prefs, false), Some(Dialog::Updates));
-        assert_eq!(first_dialog(&prefs, true), None, "Flatpak updates the app itself");
+        assert_eq!(first_dialog(&prefs), Some(Dialog::Updates));
         prefs.update_check = UpdateCheck::Off;
-        assert_eq!(first_dialog(&prefs, false), None, "answered: not asked again");
+        assert_eq!(first_dialog(&prefs), None, "answered: not asked again");
 
         let mut a = app();
         a.dialog = Some(Dialog::Updates);

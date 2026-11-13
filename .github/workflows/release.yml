@@ -1,6 +1,7 @@
 # Builds the release AppImage on the oldest supported Ubuntu, so the binary runs on
-# any distribution with glibc 2.35 or newer, and attaches it to the GitHub release.
-name: Release AppImage
+# any distribution with glibc 2.35 or newer, and a single-file Flatpak bundle, and attaches
+# both to the GitHub release.
+name: Release
 
 on:
   push:
@@ -78,3 +79,28 @@ jobs:
           # points at the newest release's Slowpage-*-x86_64.AppImage.zsync.
           zsyncmake -u "$appimage" -o "$appimage.zsync" "$appimage"
           gh release upload "$TAG" "$appimage" "$appimage.zsync" --clobber
+
+  flatpak:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Install Flatpak and the builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+      - name: Build the Flatpak bundle
+        run: bash packaging/build-flatpak.sh
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
+        run: |
+          bundle="Slowpage-${TAG#v}-x86_64.flatpak"
+          cp dist/Slowpage-x86_64.flatpak "$bundle"
+          gh release upload "$TAG" "$bundle" --clobber

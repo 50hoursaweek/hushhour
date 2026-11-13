@@ -30,8 +30,15 @@ glibc of the machine it was built on or newer; release AppImages are built by th
 GitHub Actions workflow on Ubuntu 22.04 (glibc 2.35), x86_64 only, and attached to the
 release.
 
-To build and install the Flatpak locally (app id `io.github._50hoursaweek.hushhour`, kept
-from the app's earlier name), with `org.flatpak.Builder` and the Freedesktop 26.08 SDK installed:
+Each release also has a Flatpak bundle, `Slowpage-<version>-x86_64.flatpak`. Open it with
+GNOME Software, or run `flatpak install --user Slowpage-<version>-x86_64.flatpak`; the
+Freedesktop runtime comes from Flathub if it is not installed yet. `flatpak update` does not
+update a bundle, so the Flatpak uses the same optional update check as the AppImage (its only
+use of the network permission); install the next bundle over it.
+`packaging/build-flatpak.sh` builds the bundle into `dist/`.
+
+To build and install the Flatpak from this checkout (app id `io.github._50hoursaweek.hushhour`,
+kept from the app's earlier name), with `org.flatpak.Builder` and the Freedesktop 26.08 SDK installed:
 
 ```sh
 flatpak run org.flatpak.Builder --user --install --force-clean build-dir packaging/io.github._50hoursaweek.hushhour.yml
@@ -102,8 +109,8 @@ counting failed attempts. The check fetches
 reads the release it points to; nothing about you or your documents is sent. A newer release
 shows as "Slowpage x.y.z is available" in the status bar, which opens the release page. The
 AppImage also carries standard update information, so AppImage update tools (Gear Lever,
-AppImageUpdate) can update it in place from each release's `.zsync` file. Inside a Flatpak,
-Flatpak handles updates and the question is not asked.
+AppImageUpdate) can update it in place from each release's `.zsync` file. The Flatpak bundle
+asks and checks the same way.
 
 Saving a new document offers the first five words of its first line as the file name
 (Markdown marks and characters awkward in file names left out, at most 60 characters),

@@ -81,11 +81,6 @@ pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// Inside a Flatpak, updates come from Flatpak itself.
-pub fn in_flatpak() -> bool {
-    std::env::var_os("FLATPAK_ID").is_some()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
