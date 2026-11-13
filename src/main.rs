@@ -45,6 +45,19 @@ const BUILD: &str = env!("SLOWPAGE_BUILD");
 /// light and sepia themes.
 const APP_ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 const APP_ICON_LIGHT: &[u8] = include_bytes!("../assets/icon-light-256.png");
+
+/// The About icon for a theme. Made once: every `Handle::from_bytes` gets a new id, so a
+/// handle built in `view` looked like a new image on each redraw (the caret blinks twice a
+/// second) and the icon flickered while iced loaded it again.
+fn about_icon(theme: ThemeKind) -> iced::widget::image::Handle {
+    use iced::widget::image::Handle;
+    static DARK: std::sync::LazyLock<Handle> = std::sync::LazyLock::new(|| Handle::from_bytes(APP_ICON));
+    static LIGHT: std::sync::LazyLock<Handle> = std::sync::LazyLock::new(|| Handle::from_bytes(APP_ICON_LIGHT));
+    match theme {
+        ThemeKind::Dark => DARK.clone(),
+        ThemeKind::Light | ThemeKind::Sepia => LIGHT.clone(),
+    }
+}
 const REPOSITORY: &str = "https://github.com/50hoursaweek/hushhour";
 /// The menu and dialogs use Lato Regular (Light was too thin to read at a display scale
 /// of 1); the editor uses Plex Mono, Plex Sans and Literata.
@@ -1712,10 +1725,7 @@ impl Slowpage {
             Dialog::About => (
                 "",
                 column![
-                    iced::widget::image(iced::widget::image::Handle::from_bytes(match self.prefs.theme {
-                        ThemeKind::Dark => APP_ICON,
-                        ThemeKind::Light | ThemeKind::Sepia => APP_ICON_LIGHT,
-                    }))
+                    iced::widget::image(about_icon(self.prefs.theme))
                     .width(96.0)
                     .height(96.0),
                     text(APP_NAME).size(20.0).font(UI_FONT),
@@ -3002,6 +3012,13 @@ mod tests {
         let err = load_file(path).unwrap_err();
         assert!(err.contains("larger than"), "{err}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn about_icon_is_the_same_image_on_every_redraw() {
+        assert_eq!(about_icon(ThemeKind::Dark).id(), about_icon(ThemeKind::Dark).id());
+        assert_eq!(about_icon(ThemeKind::Light).id(), about_icon(ThemeKind::Sepia).id());
+        assert_ne!(about_icon(ThemeKind::Dark).id(), about_icon(ThemeKind::Light).id());
     }
 
     #[test]
