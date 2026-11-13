@@ -70,6 +70,12 @@
     <display_length compare="ge">768</display_length>
   </requires>
   <releases>
+    <release version="0.7.2" date="2026-11-13">
+      <description>
+        <p>Each release now also has a Flatpak bundle. It asks about and checks for updates the same way as the AppImage, since a bundle is not updated by flatpak update.</p>
+        <p>The icon in About no longer flickers.</p>
+      </description>
+    </release>
     <release version="0.7.1" date="2026-11-13">
       <description>
         <p>The mouse pointer hides while you type and comes back when you move the mouse.</p>
