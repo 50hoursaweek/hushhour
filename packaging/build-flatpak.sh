@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 ID=io.github._50hoursaweek.hushhour
 WORK=target/flatpak
 mkdir -p "$WORK" dist
-flatpak run org.flatpak.Builder --user --install-deps-from=flathub --force-clean \
+# --disable-rofiles-fuse: CI runners have no FUSE.
+flatpak run org.flatpak.Builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
   --state-dir="$WORK/state" --repo="$WORK/repo" "$WORK/build" "packaging/$ID.yml"
 # --runtime-repo lets the installer fetch the Freedesktop runtime from Flathub if missing.
 flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
